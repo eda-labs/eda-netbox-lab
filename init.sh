@@ -48,7 +48,7 @@ fi
 # Wait for NetBox to be ready
 echo "Waiting for NetBox pods to be ready..."
 echo "Note: First-time deployment may take several minutes while downloading container images."
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=netbox -n netbox --timeout=600s
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=netbox --field-selector=status.phase!=Succeeded -n netbox --timeout=600s
 
 # Get NetBox service info
 echo "Checking NetBox service type..."
