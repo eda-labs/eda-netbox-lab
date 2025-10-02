@@ -86,7 +86,7 @@ class NetBoxConfigurator:
 
         webhook_data = {
             "name": "eda",
-            "payload_url": f"https://{eda_api}/core/httpproxy/v1/netbox/webhook/clab-eda-nb/netbox",
+            "payload_url": f"https://{eda_api}/core/httpproxy/v1/netbox/webhook/eda-netbox/netbox",
             "enabled": True,
             "http_method": "POST",
             "http_content_type": "application/json",

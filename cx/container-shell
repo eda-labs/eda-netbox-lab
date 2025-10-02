@@ -1,0 +1,17 @@
+#!/bin/bash
+
+CONTAINER_NAME=${1}
+CORE_NS=${2:-eda-system}
+
+if [ -z "${CONTAINER_NAME}" ]; then
+  echo "Usage: $0 <container-name>"
+  exit 1
+fi
+
+POD=$(kubectl get -n "${CORE_NS}" pods -l "eda.nokia.com/app=sim-${CONTAINER_NAME}" -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+if [ -z "${POD}" ]; then
+  echo "Simulation container ${CONTAINER_NAME} not found"
+  exit 1
+fi
+
+kubectl -n "${CORE_NS}" exec -it "${POD}" -c "${CONTAINER_NAME}" -- bash

@@ -1,189 +1,99 @@
-# EDA NetBox Integration Lab
+# Nokia EDA NetBox Lab
 
-This lab demonstrates the integration between Nokia EDA and NetBox for IPAM (IP Address Management) synchronization. It shows how EDA can dynamically create allocation pools based on NetBox's IPAM Prefixes and post allocated objects back to NetBox.
+[![Discord][discord-svg]][discord-url]
 
-## Overview
+[discord-svg]: https://gitlab.com/rdodin/pics/-/wikis/uploads/b822984bc95d77ba92d50109c66c7afe/join-discord-btn.svg
+[discord-url]: https://eda.dev/discord
 
-The NetBox app in EDA enables:
-- Dynamic creation of allocation pools based on NetBox Prefixes
-- Synchronization of allocated resources back to NetBox
-- Automated tracking of resource ownership
+When IPAM data and automation live in different systems, network provisioning quickly drifts from the intended design. The Nokia EDA NetBox lab demonstrates how the [**Nokia Event Driven Automation**](https://docs.eda.dev/) platform can stay in sync with NetBox: allocation pools are generated straight from tagged prefixes, SR Linux fabrics consume those pools, and every assignment is written back to the source of truth.
 
-## Prerequisites
-
-- Working EDA installation
-- `kubectl` access to the EDA cluster
-- `uv` tool (will be installed by init script)
-- `helm` v3.x installed - https://helm.sh/docs/intro/install/
+In its default form the lab runs entirely inside the EDA Digital Twin (CX) environment: the topology, NetBox instance, and integration resources are deployed with a single script. A Containerlab option is available for environments running EDA with `Simulate=False`—see the dedicated guide in [`clab/README.md`](./clab/README.md).
 
 ## Lab Components
 
-### Topology
-- 2 Spine switches (spine1, spine2)
-- 2 Leaf switches (leaf1, leaf2)
-- 2 Linux servers (server1, server2)
-- All devices are Nokia SR Linux based
+- **EDA Digital Twin (CX):** Provides simulated SR Linux nodes (2× spines, 2× leafs) and two Linux application servers.
+- **NetBox:** Installed via Helm inside Kubernetes; exposes a UI and API secured with secrets consumed by EDA.
+- **EDA NetBox Application:** Processes NetBox webhooks, creates allocation pools, and reconciles changes back to NetBox.
+- **Fabric Manifests:** Reference NetBox-managed pools so SR Linux provisioning always matches the IPAM intent.
+- **Helper Scripts:** `./cx/node-ssh`, `./cx/container-shell`, and `scripts/configure_netbox.py` streamline everyday operations.
 
-### NetBox Integration Features
-- Webhook for real-time updates
-- Event rules for IPAM synchronization
-- Custom fields for EDA tracking
-- Pre-configured tags and prefixes
+## Requirements
 
-## Quick Start
+> [!IMPORTANT]
+> **EDA Version:** 25.8.2 or later. Ensure your EDA playground (or production deployment) is installed and healthy before starting the lab.
 
-1. **Initialize the lab**:
+1. **Helm** – install from <https://helm.sh/docs/intro/install/>.
+2. **kubectl** – verify the EDA engine status:
    ```bash
-   ./init.sh
+   kubectl -n eda-system get engineconfig engine-config \
+     -o jsonpath='{.status.run-status}{"\n"}'
    ```
-   This will:
-   - Install NetBox using Helm ( takes ~10 minutes )
-   - Create Kubernetes secrets
-   - Configure webhook endpoint
-   - Set up initial prefixes and tags
+   Expected output: `Started`
+3. **Local shell access** to the EDA cluster. No additional tooling is required; the init script installs `uv` and `clab-connector` when needed.
 
-2. **Configure NetBox** (optional - for manual setup):
-   ```bash
-   uv run scripts/configure_netbox.py
-   ```
+## 🚀 Lab Deployment
 
-3. **Deploy Containerlab topology**:
-   ```bash
-   containerlab deploy -t eda-nb.clab.yaml
-   ```
+The `init.sh` script performs the entire CX deployment flow:
 
-4. **Import topology to EDA**:
-   ```bash
-   clab-connector integrate \
-   --topology-data clab-eda-nb/topology-data.json \
-   --eda-url "https://$(cat .eda_api_address)" \
-   --skip-edge-intfs
-   ```
+- Bootstraps the `eda-netbox` namespace (CX only)
+- Loads the SR Linux topology into CX and configures the server containers
+- Installs NetBox via Helm and waits for the service to become reachable
+- Creates Kubernetes secrets for the NetBox API token and webhook signature
+- Applies the NetBox integration manifests (`manifests/*.yaml`)
+- Runs `scripts/configure_netbox.py` to create tags, prefixes, webhooks, and event rules in NetBox
 
-5. **Apply EDA resources**:
-   ```bash
-   # Install NetBox app
-   kubectl apply -f manifests/0001_netbox_app_install.yaml
-   
-   # Wait for the netbox app to be ready
-   
-   # Apply remaining resources
-   kubectl apply -f manifests/
-   ```
-
-## Accessing Services
-
-### NetBox UI
-- URL: Check `.netbox_url` file or run `kubectl get svc -n netbox`
-- Username: `admin`
-- Password: `netbox`
-
-### EDA API
-- Stored in `.eda_api_address` file
-
-## Resource Types
-
-### NetBox Instance
-Defines connection to NetBox:
-```yaml
-apiVersion: netbox.eda.nokia.com/v1alpha1
-kind: Instance
-metadata:
-  name: netbox
-  namespace: eda
-spec:
-  url: http://netbox-server.netbox.svc.cluster.local
-  apiToken: netbox-api-token
-  signatureKey: netbox-webhook-signature
-```
-
-### Allocation Resources
-Map NetBox prefixes to EDA allocation pools:
-
-| Type | EDA Pool | Use Case |
-|------|----------|----------|
-| `ip-address` | IPAllocationPool | System IPs |
-| `ip-in-subnet` | IPInSubnetAllocationPool | Management IPs |
-| `subnet` | SubnetAllocationPool | ISL links |
-
-## Example Workflow
-
-1. **Create Prefix in NetBox**:
-   - Navigate to IPAM → Prefixes
-   - Add prefix (e.g., `192.168.100.0/24`)
-   - Set Status to `Active` (for IP pools) or `Container` (for subnet pools)
-   - Add appropriate tag (e.g., `eda-systemip-v4`)
-
-2. **EDA Creates Allocation Pool**:
-   - NetBox sends webhook to EDA
-   - EDA creates matching allocation pool
-   - Pool name matches Allocation resource name
-
-3. **Use in Fabric**:
-   ```yaml
-   apiVersion: fabrics.eda.nokia.com/v1alpha1
-   kind: Fabric
-   metadata:
-     name: netbox-ebgp-fabric
-   spec:
-     systemPoolIPV4: nb-systemip-v4
-     interSwitchLinks:
-       poolIPV4: nb-isl-v4
-   ```
-
-4. **View Allocations in NetBox**:
-   - Allocated IPs appear under original prefix
-   - Custom fields show EDA owner and allocation
-
-## Pre-configured Resources
-
-### Tags
-- `eda-systemip-v4` - IPv4 System IPs
-- `eda-systemip-v6` - IPv6 System IPs
-- `eda-isl-v4` - IPv4 ISL subnets
-- `eda-isl-v6` - IPv6 ISL subnets
-- `eda-mgmt-v4` - Management IPs
-- `EDAManaged` - Auto-assigned to EDA allocations
-
-### Prefixes
-- `192.168.10.0/24` - System IPs (Active)
-- `10.0.0.0/16` - ISL subnets (Container)
-- `2001:db8::/32` - IPv6 System IPs (Active)
-- `2005::/64` - IPv6 ISL subnets (Container)
-- `172.16.0.0/16` - Management IPs (Active)
-
-## Troubleshooting
-
-### Check NetBox connectivity:
 ```bash
-kubectl get instance netbox -n clab-eda-nb -o yaml
+./init.sh
 ```
 
-### View allocation status:
-```bash
-kubectl get allocation -n clab-eda-nb
-```
+> [!NOTE]
+> The script detects CX automatically. If CX pods are not present it prepares the environment for the Containerlab workflow—follow the instructions in [`clab/README.md`](./clab/README.md) to continue with that path.
 
-### Check webhook logs:
-```bash
-kubectl logs -n eda-system -l app=netbox
-```
+### Verify Deployment
 
-### Port forwarding (if LoadBalancer not available):
-```bash
-kubectl port-forward -n netbox service/netbox-server 8001:80 --address=0.0.0.0
-```
+1. **NetBox UI:** The URL is printed at the end of `init.sh` and stored in `.netbox_url`. Default credentials: `admin` / `netbox`.
+2. **EDA Namespace:**
+   ```bash
+   kubectl get toponode -n eda-netbox
+   kubectl get allocation -n eda-netbox
+   ```
+3. **Webhook Logs:**
+   ```bash
+   kubectl logs -n eda-system -l app=netbox --tail 100
+   ```
+
+## Accessing Network Elements
+
+- **SR Linux nodes (CX):** `./cx/node-ssh leaf1`
+- **Server containers (CX):** `./cx/container-shell server1`
+- **NetBox API token:** stored as the `netbox-api-token` secret in the `eda-netbox` namespace
+- **EDA API endpoint:** saved locally in `.eda_api_address` for use with `clab-connector` or custom tooling
+
+## Working with NetBox Integration
+
+- **Prefixes & Tags:** Examples (e.g., `eda-systemip-v4`, `eda-isl-v4`) are created automatically. Add your own prefixes in NetBox using the same tags to provision additional pools.
+- **Allocations:** Every pool is mirrored into EDA as an `Allocation` CR. Watch updates with:
+  ```bash
+  kubectl get allocation -n eda-netbox
+  ```
+- **Fabric:** The sample `Fabric` resource (`manifests/0060_fabric.yaml`) references the NetBox-managed pools and runs EBGP across the spine-leaf topology.
+
+## Containerlab Variant
+
+Running EDA with `Simulate=False` and external SR Linux nodes? After `./init.sh` completes, follow [`clab/README.md`](./clab/README.md) to deploy the Containerlab topology, import it with `clab-connector`, and access the physical or virtual nodes.
 
 ## Cleanup
 
-To remove all lab resources:
 ```bash
 ./cleanup.sh
+# Optional: remove the Containerlab topology if used
 containerlab destroy -t eda-nb.clab.yaml
+# Optional: delete the namespace when testing different scenarios
+kubectl delete namespace eda-netbox --wait=false
 ```
 
 ## Additional Resources
 
-- [EDA NetBox App Detailed Guide](https://docs.eda.dev/25.4/apps/netbox/) - Comprehensive documentation on the NetBox app including configuration examples and troubleshooting
+- [EDA NetBox App Guide](https://docs.eda.dev/25.4/apps/netbox/)
 - [NetBox Documentation](https://docs.netbox.dev/)
 - [Containerlab Documentation](https://containerlab.dev/)

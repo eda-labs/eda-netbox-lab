@@ -1,28 +1,72 @@
 #!/bin/bash
 
-function install-uv {
-    # error if uv is not in the path
-    if ! command -v uv &> /dev/null;
-    then
-        echo "Installing uv";
+set -euo pipefail
+
+ensure_uv() {
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "Installing uv runtime..."
         curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
     fi
 }
 
-# Install uv and clab-connector
-install-uv
-uv tool install git+https://github.com/eda-labs/clab-connector.git
-uv tool upgrade clab-connector
+indent_out() { sed 's/^/    /'; }
 
-# Add NetBox helm repo if not already added
+GREEN="\033[0;32m"
+RESET="\033[0m"
+
+ST_STACK_NS=eda-netbox
+DEFAULT_USER_NS=eda
+
+ensure_uv
+
+CX_DEP=$(kubectl get -A deployment -l eda.nokia.com/app=cx 2>/dev/null | grep eda-cx || true)
+
+if [[ -n "$CX_DEP" ]]; then
+    echo -e "${GREEN}--> EDA CX environment detected. Using CX resources.${RESET}"
+    IS_CX=true
+
+    echo "Labeling SR Linux node profile for bootstrap (if present)..."
+    kubectl -n ${DEFAULT_USER_NS} label nodeprofile srlinux-ghcr-25.7.2 \
+        eda.nokia.com/bootstrap=true --overwrite >/dev/null 2>&1 || true
+
+    edactl() {
+        kubectl -n eda-system exec \
+            $(kubectl -n eda-system get pods -l eda.nokia.com/app=eda-toolbox -o jsonpath="{.items[0].metadata.name}") \
+            -- edactl "$@"
+    }
+
+    echo -e "${GREEN}--> Bootstrapping namespace ${ST_STACK_NS}...${RESET}"
+    if ! edactl namespace bootstrap ${ST_STACK_NS} | indent_out; then
+        echo "Warning: namespace bootstrap reported an issue; continuing." >&2
+    fi
+
+    echo -e "${GREEN}--> Deploying CX topology...${RESET}"
+    bash ./cx/topology/topo.sh load cx/topology/topo.yaml cx/topology/simtopo.yaml | indent_out
+
+    echo -e "${GREEN}--> Waiting for CX nodes to reach Synced state...${RESET}"
+    kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.node-state}'=Synced \
+        toponode --all --timeout=300s | indent_out
+
+    echo -e "${GREEN}--> Configuring CX server containers...${RESET}"
+    bash ./cx/topology/configure-servers.sh | indent_out
+else
+    echo -e "${GREEN}Containerlab environment detected (no CX pods found).${RESET}"
+    IS_CX=false
+
+    echo "Installing/upgrading clab-connector tooling..."
+    uv tool install git+https://github.com/eda-labs/clab-connector.git >/dev/null
+    uv tool upgrade clab-connector >/dev/null
+
+    kubectl get namespace ${ST_STACK_NS} >/dev/null 2>&1 || kubectl create namespace ${ST_STACK_NS}
+fi
+
 echo "Adding NetBox helm repository..."
 helm repo add netbox https://netbox-community.github.io/netbox-chart/ 2>/dev/null || true
-helm repo update
+helm repo update >/dev/null
 
-# Check if NetBox is already installed
 if helm list -n netbox | grep -q netbox-server; then
     echo "NetBox is already installed. Upgrading..."
-    # Pin database dependencies to the Bitnami legacy namespace after the August 2025 migration.
     helm upgrade netbox-server netbox/netbox \
         --namespace=netbox \
         --set postgresql.auth.password=netbox123 \
@@ -38,10 +82,9 @@ if helm list -n netbox | grep -q netbox-server; then
         --set valkey.image.tag=8.1.3-debian-12-r3 \
         --set worker.waitForBackend.image.repository=bitnamilegacy/kubectl \
         --set worker.waitForBackend.image.tag=1.33.2-debian-12-r3 \
-        --version 6.0.52
+        --version 6.0.52 >/dev/null
 else
     echo "Installing NetBox helm chart..."
-    # Pin database dependencies to the Bitnami legacy namespace after the August 2025 migration.
     helm install netbox-server netbox/netbox \
         --create-namespace \
         --namespace=netbox \
@@ -58,145 +101,115 @@ else
         --set valkey.image.tag=8.1.3-debian-12-r3 \
         --set worker.waitForBackend.image.repository=bitnamilegacy/kubectl \
         --set worker.waitForBackend.image.tag=1.33.2-debian-12-r3 \
-        --version 6.0.52
+        --version 6.0.52 >/dev/null
 fi
 
-# Wait for NetBox to be ready
 echo "Waiting for NetBox pods to be ready..."
-echo "Note: First-time deployment may take several minutes while downloading container images."
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=netbox --field-selector=status.phase!=Succeeded -n netbox --timeout=600s
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=netbox \
+    --field-selector=status.phase!=Succeeded -n netbox --timeout=600s >/dev/null
 
-# Get NetBox service info
-echo "Checking NetBox service type..."
-SERVICE_TYPE=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.spec.type}' 2>/dev/null)
-echo "Service type: $SERVICE_TYPE"
+SERVICE_TYPE=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.spec.type}')
+echo "NetBox service type: $SERVICE_TYPE"
 
-if [ "$SERVICE_TYPE" == "LoadBalancer" ]; then
-    echo "Waiting for NetBox LoadBalancer to get external IP..."
-    NETBOX_IP=""
-    RETRY_COUNT=0
-    MAX_RETRIES=30
-    
-    while [ -z "$NETBOX_IP" ] && [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-        NETBOX_IP=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
-        if [ -z "$NETBOX_IP" ]; then
-            # Also check for hostname (some cloud providers use hostname instead of IP)
-            NETBOX_IP=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+NETBOX_URL=""
+if [[ "$SERVICE_TYPE" == "LoadBalancer" ]]; then
+    echo "Waiting for NetBox LoadBalancer address..."
+    for attempt in {1..30}; do
+        ADDR=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+        if [[ -z "$ADDR" ]]; then
+            ADDR=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
         fi
-        if [ -z "$NETBOX_IP" ]; then
-            echo "Waiting for external IP... (attempt $((RETRY_COUNT+1))/$MAX_RETRIES)"
-            sleep 10
-            RETRY_COUNT=$((RETRY_COUNT+1))
+        if [[ -n "$ADDR" ]]; then
+            NETBOX_URL="http://${ADDR}"
+            echo "LoadBalancer reachable at: $NETBOX_URL"
+            break
         fi
+        echo "Waiting for external address... (attempt ${attempt}/30)"
+        sleep 10
     done
-    
-    if [ -n "$NETBOX_IP" ]; then
-        echo "Got NetBox external IP/hostname: $NETBOX_IP"
-        NETBOX_URL="http://$NETBOX_IP"
-    else
-        echo "Warning: LoadBalancer IP not assigned. Falling back to port-forward."
-        SERVICE_TYPE="ClusterIP"
-    fi
 fi
 
-if [ "$SERVICE_TYPE" != "LoadBalancer" ] || [ -z "$NETBOX_IP" ]; then
-    # Kill any existing port-forwards
+if [[ -z "$NETBOX_URL" ]]; then
     pkill -f "kubectl port-forward.*netbox-server.*8001" 2>/dev/null || true
-    
-    # Get the actual service port
     SERVICE_PORT=$(kubectl get svc -n netbox netbox-server -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "80")
-    
-    # Use port-forward for ClusterIP or if LoadBalancer failed
-    echo "Starting NetBox port-forward on port 8001..."
+    echo "Starting NetBox port-forward on 8001..."
     nohup kubectl port-forward -n netbox service/netbox-server 8001:${SERVICE_PORT} --address=0.0.0.0 >/dev/null 2>&1 &
     PORT_FORWARD_PID=$!
     sleep 5
-    
-    # Check if port-forward is running
-    if ps -p $PORT_FORWARD_PID > /dev/null; then
-        echo "NetBox port-forward started successfully (PID: $PORT_FORWARD_PID)"
-        NETBOX_URL="http://$(hostname -I | awk '{print $1}'):8001"
-        echo "NetBox is accessible at: $NETBOX_URL"
-        echo "Or via: http://localhost:8001 (from this machine)"
+    if ps -p $PORT_FORWARD_PID >/dev/null; then
+        HOST_IP=$(hostname -I | awk '{print $1}')
+        NETBOX_URL="http://${HOST_IP}:8001"
+        echo "NetBox port-forward active (PID $PORT_FORWARD_PID)"
     else
-        echo "Error: Port-forward failed to start. Please run manually:"
-        echo "kubectl port-forward -n netbox service/netbox-server 8001:${SERVICE_PORT} --address=0.0.0.0"
+        echo "Port-forward failed to start; please configure manually."
         NETBOX_URL="http://localhost:8001"
     fi
 fi
 
-# Save NetBox URL for later use
 echo "$NETBOX_URL" > .netbox_url
 
-# Fetch EDA ext domain name from engine config
 EDA_API=$(uv run ./scripts/get_eda_api.py)
-
-# Ensure input is not empty
 if [[ -z "$EDA_API" ]]; then
-  echo "No EDA API address found. Exiting."
-  exit 1
+    echo "No EDA API address found. Exiting."
+    exit 1
 fi
-
-# Save EDA API address to a file
 echo "$EDA_API" > .eda_api_address
 
-# Get NetBox API token
-echo "Getting NetBox API token..."
 NETBOX_API_TOKEN=$(kubectl -n netbox get secret netbox-server-superuser -o jsonpath='{.data.api_token}' | base64 -d)
 
-# Create Kubernetes secrets for NetBox integration
-echo "Creating Kubernetes secrets for NetBox integration..."
+echo "Ensuring namespace ${ST_STACK_NS} exists..."
+kubectl get namespace ${ST_STACK_NS} >/dev/null 2>&1 || kubectl create namespace ${ST_STACK_NS}
 
-# Create namespace if it doesn't exist
-kubectl create namespace clab-eda-nb 2>/dev/null || true
-
-# Create NetBox API token secret
-cat << EOF | kubectl apply -f -
+token_b64=$(echo -n "$NETBOX_API_TOKEN" | base64)
+cat <<YAML | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
   name: netbox-api-token
-  namespace: clab-eda-nb
+  namespace: ${ST_STACK_NS}
 type: Opaque
 data:
-  apiToken: $(echo -n "$NETBOX_API_TOKEN" | base64)
-EOF
+  apiToken: ${token_b64}
+YAML
 
-# Create webhook signature secret
 WEBHOOK_SECRET="eda-netbox-webhook-secret"
-cat << EOF | kubectl apply -f -
+webhook_b64=$(echo -n "$WEBHOOK_SECRET" | base64)
+cat <<YAML | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
   name: netbox-webhook-signature
-  namespace: clab-eda-nb
+  namespace: ${ST_STACK_NS}
 type: Opaque
 data:
-  signatureKey: $(echo -n "$WEBHOOK_SECRET" | base64)
-EOF
+  signatureKey: ${webhook_b64}
+YAML
 
-# Configure NetBox automatically
-echo ""
+echo -e "${GREEN}--> Applying EDA resources...${RESET}"
+kubectl apply -f ./manifests | indent_out
+
 echo "Configuring NetBox for EDA integration..."
-uv run scripts/configure_netbox.py
+uv run scripts/configure_netbox.py | indent_out
+
+echo ""
+if [[ "$IS_CX" == "true" ]]; then
+    echo "CX topology ready. Helpers:"
+    echo "  ./cx/node-ssh <node>"
+    echo "  ./cx/container-shell <server>"
+else
+    echo "Next steps for containerlab deployment:"
+    echo "  1. containerlab deploy -t eda-nb.clab.yaml"
+    echo "  2. clab-connector integrate \\
+       --topology-data clab-eda-nb/topology-data.json \\
+       --eda-url \"https://$(cat .eda_api_address)\" \\
+       --namespace ${ST_STACK_NS} \\
+       --skip-edge-intfs"
+fi
 
 echo ""
 echo "==================================="
 echo "NetBox installation completed!"
 echo "==================================="
-echo ""
-echo "NetBox Access:"
-echo "  URL: $NETBOX_URL"
-echo "  Username: admin"
-echo "  Password: netbox"
-echo ""
-if [ "$SERVICE_TYPE" != "LoadBalancer" ] || [ -z "$NETBOX_IP" ]; then
-    echo "Note: Using port-forward to access NetBox"
-    echo "  - For Kind/local clusters, you may need additional port-forwarding from your host"
-    echo "  - To restart port-forward: kubectl port-forward -n netbox service/netbox-server 8001:80 --address=0.0.0.0"
-fi
-echo ""
-echo "Next steps:"
-echo "1. Deploy the containerlab topology: sudo containerlab deploy -t eda-nb.clab.yaml"
-echo "2. Import topology to EDA: clab-connector import -t eda-nb.clab.yaml"
-echo "3. Apply EDA resources: kubectl apply -f manifests/"
+echo "NetBox URL: $NETBOX_URL"
+echo "Username: admin"
+echo "Password: netbox"

@@ -1,0 +1,23 @@
+#!/bin/bash
+
+NODE_NAME=${1}
+USER_NS=${2:-eda-netbox}
+CORE_NS=${3:-eda-system}
+
+if [ -z "${NODE_NAME}" ]; then
+  echo "Usage: $0 <node-name> [<user-namespace>]"
+  exit 1
+fi
+
+get_pod() {
+  kubectl get -n "${CORE_NS}" pods -l eda.nokia.com/app=eda-toolbox -o jsonpath="{.items[0].metadata.name}"
+}
+
+TOPO_NODE_ADDR=$(kubectl -n "${USER_NS}" get targetnode "${NODE_NAME}" -o jsonpath='{.spec.address}' 2>/dev/null)
+if [ -z "${TOPO_NODE_ADDR}" ]; then
+  echo "Node ${NODE_NAME} not found in namespace ${USER_NS}"
+  exit 1
+fi
+
+kubectl -n "${CORE_NS}" exec -it "$(get_pod)" -- ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  admin@"${TOPO_NODE_ADDR}"

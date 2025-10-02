@@ -2,7 +2,7 @@ apiVersion: fabrics.eda.nokia.com/v1alpha1
 kind: Fabric
 metadata:
   name: netbox-ebgp-fabric
-  namespace: clab-eda-nb
+  namespace: eda-netbox
 spec:
   leafs:
     leafNodeSelector:
@@ -13,10 +13,8 @@ spec:
   interSwitchLinks:
     linkSelector:
       - eda.nokia.com/role=interSwitch
-    # Use NetBox-managed allocation pools
     poolIPV4: nb-isl-v4
     poolIPV6: nb-isl-v6
-  # Use NetBox-managed system IP pools
   systemPoolIPV4: nb-systemip-v4
   systemPoolIPV6: nb-systemip-v6
   underlayProtocol:
