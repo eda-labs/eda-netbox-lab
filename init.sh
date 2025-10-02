@@ -22,6 +22,7 @@ helm repo update
 # Check if NetBox is already installed
 if helm list -n netbox | grep -q netbox-server; then
     echo "NetBox is already installed. Upgrading..."
+    # Pin database dependencies to the Bitnami legacy namespace after the August 2025 migration.
     helm upgrade netbox-server netbox/netbox \
         --namespace=netbox \
         --set postgresql.auth.password=netbox123 \
@@ -30,9 +31,17 @@ if helm list -n netbox | grep -q netbox-server; then
         --set superuser.apiToken=0123456789abcdef0123456789abcdef01234567 \
         --set service.type=LoadBalancer \
         --set enforceGlobalUnique=false \
+        --set global.security.allowInsecureImages=true \
+        --set postgresql.image.repository=bitnamilegacy/postgresql \
+        --set postgresql.image.tag=17.5.0-debian-12-r9 \
+        --set valkey.image.repository=bitnamilegacy/valkey \
+        --set valkey.image.tag=8.1.3-debian-12-r3 \
+        --set worker.waitForBackend.image.repository=bitnamilegacy/kubectl \
+        --set worker.waitForBackend.image.tag=1.33.2-debian-12-r3 \
         --version 6.0.52
 else
     echo "Installing NetBox helm chart..."
+    # Pin database dependencies to the Bitnami legacy namespace after the August 2025 migration.
     helm install netbox-server netbox/netbox \
         --create-namespace \
         --namespace=netbox \
@@ -42,6 +51,13 @@ else
         --set superuser.apiToken=0123456789abcdef0123456789abcdef01234567 \
         --set service.type=LoadBalancer \
         --set enforceGlobalUnique=false \
+        --set global.security.allowInsecureImages=true \
+        --set postgresql.image.repository=bitnamilegacy/postgresql \
+        --set postgresql.image.tag=17.5.0-debian-12-r9 \
+        --set valkey.image.repository=bitnamilegacy/valkey \
+        --set valkey.image.tag=8.1.3-debian-12-r3 \
+        --set worker.waitForBackend.image.repository=bitnamilegacy/kubectl \
+        --set worker.waitForBackend.image.tag=1.33.2-debian-12-r3 \
         --version 6.0.52
 fi
 
