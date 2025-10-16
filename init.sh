@@ -18,6 +18,36 @@ RESET="\033[0m"
 ST_STACK_NS=eda-netbox
 DEFAULT_USER_NS=eda
 
+IMPORT_NOKIA_DEVICE_TYPES=false
+
+usage() {
+    cat <<USAGE
+Usage: $0 [options]
+
+Options:
+  --import-nokia-device-types  Import Nokia device types using the community Device Type Library importer once NetBox is ready.
+  -h, --help                   Show this help message.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --import-nokia-device-types)
+            IMPORT_NOKIA_DEVICE_TYPES=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
 ensure_uv
 
 CX_DEP=$(kubectl get -A deployment -l eda.nokia.com/app=cx 2>/dev/null | grep eda-cx || true)
@@ -214,6 +244,11 @@ kubectl apply -f ./manifests | indent_out
 
 echo "Configuring NetBox for EDA integration..."
 uv run scripts/configure_netbox.py | indent_out
+
+if [[ "$IMPORT_NOKIA_DEVICE_TYPES" == "true" ]]; then
+    echo "Importing Nokia device types from the NetBox Device Type Library..."
+    uv run scripts/import_device_types.py | indent_out
+fi
 
 echo ""
 if [[ "$IS_CX" == "true" ]]; then

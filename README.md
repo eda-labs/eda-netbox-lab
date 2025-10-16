@@ -46,6 +46,14 @@ The `init.sh` script performs the entire CX deployment flow:
 ./init.sh
 ```
 
+Need standard Nokia device definitions preloaded? Add `--import-nokia-device-types` to let the init flow pull them from the community Device Type Library once NetBox is online:
+
+```bash
+./init.sh --import-nokia-device-types
+```
+
+The importer script is also available on its own and always runs inside Kubernetes: `uv run scripts/import_device_types.py --vendors nokia`. Use `--library-url`, `--library-branch`, or `--importer-image` to point at custom sources if required.
+
 > [!NOTE]
 > The script detects CX automatically. If CX pods are not present it prepares the environment for the Containerlab workflow—follow the instructions in [`clab/README.md`](./clab/README.md) to continue with that path.
 
