@@ -22,6 +22,29 @@ ensure_uv
 
 CX_DEP=$(kubectl get -A deployment -l eda.nokia.com/app=cx 2>/dev/null | grep eda-cx || true)
 
+ensure_progress_deadline() {
+    local deployment=$1
+    local namespace=${2:-netbox}
+    local deadline=${3:-1200}
+    local attempts=12
+    local wait_seconds=5
+
+    for ((i=1; i<=attempts; i++)); do
+        if kubectl -n "${namespace}" get deployment "${deployment}" >/dev/null 2>&1; then
+            if kubectl -n "${namespace}" patch deployment "${deployment}" \
+                --type merge \
+                --patch "{\"spec\":{\"progressDeadlineSeconds\":${deadline}}}" >/dev/null; then
+                echo "Set progressDeadlineSeconds=${deadline} for deployment ${deployment} in namespace ${namespace}."
+                return 0
+            fi
+            echo "Warning: unable to patch progressDeadlineSeconds for deployment ${deployment} (attempt ${i}/${attempts})." >&2
+        fi
+        sleep "${wait_seconds}"
+    done
+    echo "Warning: failed to patch progressDeadlineSeconds for deployment ${deployment} in namespace ${namespace}." >&2
+    return 1
+}
+
 if [[ -n "$CX_DEP" ]]; then
     echo -e "${GREEN}--> EDA CX environment detected. Using CX resources.${RESET}"
     IS_CX=true
@@ -69,6 +92,7 @@ if helm list -n netbox | grep -q netbox-server; then
     echo "NetBox is already installed. Upgrading..."
     helm upgrade netbox-server netbox/netbox \
         --namespace=netbox \
+        -f configs/netbox-values.yaml \
         --set postgresql.auth.password=netbox123 \
         --set redis.auth.password=netbox123 \
         --set superuser.password=netbox \
@@ -80,14 +104,13 @@ if helm list -n netbox | grep -q netbox-server; then
         --set postgresql.image.tag=17.5.0-debian-12-r9 \
         --set valkey.image.repository=bitnamilegacy/valkey \
         --set valkey.image.tag=8.1.3-debian-12-r3 \
-        --set worker.waitForBackend.image.repository=bitnamilegacy/kubectl \
-        --set worker.waitForBackend.image.tag=1.33.2-debian-12-r3 \
         --version 6.0.52 >/dev/null
 else
     echo "Installing NetBox helm chart..."
     helm install netbox-server netbox/netbox \
         --create-namespace \
         --namespace=netbox \
+        -f configs/netbox-values.yaml \
         --set postgresql.auth.password=netbox123 \
         --set redis.auth.password=netbox123 \
         --set superuser.password=netbox \
@@ -99,14 +122,15 @@ else
         --set postgresql.image.tag=17.5.0-debian-12-r9 \
         --set valkey.image.repository=bitnamilegacy/valkey \
         --set valkey.image.tag=8.1.3-debian-12-r3 \
-        --set worker.waitForBackend.image.repository=bitnamilegacy/kubectl \
-        --set worker.waitForBackend.image.tag=1.33.2-debian-12-r3 \
         --version 6.0.52 >/dev/null
 fi
 
-echo "Waiting for NetBox pods to be ready..."
+ensure_progress_deadline netbox-server
+ensure_progress_deadline netbox-server-worker
+
+echo "Waiting for NetBox pods to be ready (this can take up to 15 minutes, check kubectl get pods -n netbox)..."
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=netbox \
-    --field-selector=status.phase!=Succeeded -n netbox --timeout=600s >/dev/null
+    --field-selector=status.phase!=Succeeded -n netbox --timeout=900s >/dev/null
 
 SERVICE_TYPE=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.spec.type}')
 echo "NetBox service type: $SERVICE_TYPE"

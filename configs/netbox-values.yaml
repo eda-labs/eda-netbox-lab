@@ -1,0 +1,32 @@
+worker:
+  waitForBackend:
+    image:
+      repository: bitnamilegacy/kubectl
+      tag: 1.33.2-debian-12-r3
+    command:
+      - /bin/bash
+      - -ec
+    args:
+      - |
+        set -euo pipefail
+        deployment="${DEPLOYMENT_NAME:?deployment name is missing}"
+        namespace="${POD_NAMESPACE:-netbox}"
+        max_attempts=${WAIT_MAX_ATTEMPTS:-20}
+        delay_seconds=${WAIT_DELAY_SECONDS:-30}
+        rollout_timeout=${WAIT_ROLLOUT_TIMEOUT:-"120s"}
+        attempt=1
+        echo "Waiting for deployment \"${deployment}\" to report a successful rollout..."
+        while [ "${attempt}" -le "${max_attempts}" ]; do
+          echo "Attempt ${attempt}/${max_attempts}"
+          if kubectl rollout status deployment "${deployment}" --namespace="${namespace}" --timeout="${rollout_timeout}"; then
+            echo "Deployment \"${deployment}\" is ready."
+            exit 0
+          fi
+          echo "Deployment \"${deployment}\" not ready yet; sleeping ${delay_seconds}s before retry."
+          attempt=$((attempt + 1))
+          sleep "${delay_seconds}"
+        done
+        echo "Deployment \"${deployment}\" did not become ready after ${max_attempts} attempts." >&2
+        kubectl get deployment "${deployment}" --namespace="${namespace}" || true
+        kubectl get pods --namespace="${namespace}" || true
+        exit 1
