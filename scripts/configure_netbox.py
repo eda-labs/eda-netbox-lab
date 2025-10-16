@@ -105,20 +105,61 @@ class NetBoxConfigurator:
             return None
 
     def create_event_rule(self, webhook_id):
-        """Create event rule for webhook"""
+        """Create or update the EDA event rule for the webhook"""
         print("Creating event rule...")
 
-        # Check if event rule already exists
+        required_object_types = [
+            "dcim.site",
+            "dcim.device",
+            "dcim.cable",
+            "dcim.devicetype",
+            "ipam.ipaddress",
+            "ipam.prefix",
+            "ipam.vlangroup",
+            "ipam.vlan",
+            "ipam.asn",
+            "ipam.asnrange",
+        ]
+
         response = self.session.get(
             f"{self.netbox_url}/api/extras/event-rules/?name=eda"
         )
-        if response.json()["count"] > 0:
-            print("Event rule 'eda' already exists")
+        data = response.json()
+        if data["count"] > 0:
+            event_rule = data["results"][0]
+            event_rule_id = event_rule["id"]
+            existing_types = set(event_rule.get("object_types", []))
+            missing_types = set(required_object_types).difference(existing_types)
+            updated_types = sorted(existing_types.union(required_object_types))
+            needs_update = (
+                bool(missing_types)
+                or event_rule.get("action_object_id") != webhook_id
+                or not event_rule.get("enabled", False)
+            )
+            if needs_update:
+                patch_payload = {
+                    "object_types": updated_types,
+                    "action_object_id": webhook_id,
+                    "enabled": True,
+                }
+                patch_response = self.session.patch(
+                    f"{self.netbox_url}/api/extras/event-rules/{event_rule_id}/",
+                    json=patch_payload,
+                )
+                if patch_response.status_code == 200:
+                    print("Event rule 'eda' updated successfully")
+                else:
+                    print(
+                        "Error updating event rule 'eda': "
+                        f"{patch_response.status_code} {patch_response.text}"
+                    )
+            else:
+                print("Event rule 'eda' already up to date")
             return
 
         event_rule_data = {
             "name": "eda",
-            "object_types": ["ipam.ipaddress", "ipam.prefix"],
+            "object_types": required_object_types,
             "enabled": True,
             "event_types": ["object_created", "object_updated", "object_deleted"],
             "action_type": "webhook",
@@ -142,6 +183,8 @@ class NetBoxConfigurator:
             {"name": "eda-isl-v4", "slug": "eda-isl-v4", "color": "00cc66"},
             {"name": "eda-isl-v6", "slug": "eda-isl-v6", "color": "00cc66"},
             {"name": "eda-mgmt-v4", "slug": "eda-mgmt-v4", "color": "cc6600"},
+            {"name": "eda-vlans", "slug": "eda-vlans", "color": "ff5722"},
+            {"name": "eda-asns", "slug": "eda-asns", "color": "9e9e9e"},
         ]
 
         print("Creating tags...")
@@ -161,6 +204,167 @@ class NetBoxConfigurator:
                 print(f"Tag '{tag['name']}' created successfully")
             else:
                 print(f"Error creating tag '{tag['name']}': {response.text}")
+
+    def create_vlan_groups(self):
+        """Create VLAN groups used for EDA allocations"""
+        vlan_groups = [
+            {
+                "name": "eda-vlans",
+                "slug": "eda-vlans",
+                "description": "EDA managed VLAN IDs",
+                "vid_ranges": [[1, 300]],
+                "tags": [{"name": "eda-vlans"}],
+            }
+        ]
+
+        print("Creating VLAN groups...")
+        for group in vlan_groups:
+            response = self.session.get(
+                f"{self.netbox_url}/api/ipam/vlan-groups/?name={group['name']}"
+            )
+            if response.json().get("count", 0) > 0:
+                print(f"VLAN group '{group['name']}' already exists")
+                continue
+
+            create_response = self.session.post(
+                f"{self.netbox_url}/api/ipam/vlan-groups/", json=group
+            )
+            if create_response.status_code == 201:
+                print(f"VLAN group '{group['name']}' created successfully")
+            else:
+                print(
+                    f"Error creating VLAN group '{group['name']}': "
+                    f"{create_response.status_code} {create_response.text}"
+                )
+
+    def create_rir(self, slug="eda", name="eda"):
+        """Create or correct the RIR required for ASN allocations"""
+        response = self.session.get(
+            f"{self.netbox_url}/api/ipam/rirs/?slug={slug}"
+        )
+        data = response.json()
+        if data.get("count", 0) > 0:
+            rir = data["results"][0]
+            if rir.get("name") != name:
+                patch_payload = {"name": name}
+                patch_response = self.session.patch(
+                    f"{self.netbox_url}/api/ipam/rirs/{rir['id']}/",
+                    json=patch_payload,
+                )
+                if patch_response.status_code != 200:
+                    print(
+                        f"Warning: Unable to update RIR '{slug}' name: "
+                        f"{patch_response.status_code} {patch_response.text}"
+                    )
+            return rir["id"]
+
+        rir_payload = {
+            "name": name,
+            "slug": slug,
+            "is_private": False,
+            "description": "For EDA managed resources",
+        }
+        create_response = self.session.post(
+            f"{self.netbox_url}/api/ipam/rirs/", json=rir_payload
+        )
+        if create_response.status_code == 201:
+            rir = create_response.json()
+            print(f"Created RIR '{name}' with ID {rir['id']}")
+            return rir["id"]
+
+        print(
+            "Error: Unable to create RIR '"
+            f"{name}' ({create_response.status_code} {create_response.text})"
+        )
+        return None
+
+    def create_asn_ranges(self):
+        """Create ASN ranges used for EDA allocations"""
+        rir_id = self.create_rir()
+        if rir_id is None:
+            return
+
+        asn_ranges = [
+            {
+                "name": "eda-asns",
+                "slug": "eda-asns",
+                "start": 65000,
+                "end": 65100,
+                "description": "EDA managed private ASNs",
+                "rir": rir_id,
+                "tags": [{"name": "eda-asns"}],
+            }
+        ]
+
+        print("Creating ASN ranges...")
+        for asn_range in asn_ranges:
+            response = self.session.get(
+                f"{self.netbox_url}/api/ipam/asn-ranges/?slug={asn_range['slug']}"
+            )
+            data = response.json()
+            if data.get("count", 0) > 0:
+                existing = data["results"][0]
+                patch_payload = {
+                    "name": asn_range["name"],
+                    "start": asn_range["start"],
+                    "end": asn_range["end"],
+                    "description": asn_range["description"],
+                    "rir": rir_id,
+                    "tags": [dict(tag) for tag in asn_range["tags"]],
+                }
+                patch_response = self.session.patch(
+                    f"{self.netbox_url}/api/ipam/asn-ranges/{existing['id']}/",
+                    json=patch_payload,
+                )
+                if patch_response.status_code == 200:
+                    print(f"ASN range '{asn_range['name']}' updated successfully")
+                else:
+                    print(
+                        f"Error updating ASN range '{asn_range['name']}': "
+                        f"{patch_response.status_code} {patch_response.text}"
+                    )
+                continue
+
+            legacy_response = self.session.get(
+                f"{self.netbox_url}/api/ipam/asn-ranges/?slug=eda-ans"
+            )
+            legacy_data = legacy_response.json()
+            if legacy_data.get("count", 0) > 0:
+                legacy = legacy_data["results"][0]
+                patch_payload = {
+                    "name": asn_range["name"],
+                    "slug": asn_range["slug"],
+                    "start": asn_range["start"],
+                    "end": asn_range["end"],
+                    "description": asn_range["description"],
+                    "rir": rir_id,
+                    "tags": [dict(tag) for tag in asn_range["tags"]],
+                }
+                patch_response = self.session.patch(
+                    f"{self.netbox_url}/api/ipam/asn-ranges/{legacy['id']}/",
+                    json=patch_payload,
+                )
+                if patch_response.status_code == 200:
+                    print(
+                        "Legacy ASN range 'eda-ans' migrated to 'eda-asns' successfully"
+                    )
+                else:
+                    print(
+                        "Error migrating legacy ASN range 'eda-ans': "
+                        f"{patch_response.status_code} {patch_response.text}"
+                    )
+                continue
+
+            create_response = self.session.post(
+                f"{self.netbox_url}/api/ipam/asn-ranges/", json=asn_range
+            )
+            if create_response.status_code == 201:
+                print(f"ASN range '{asn_range['name']}' created successfully")
+            else:
+                print(
+                    f"Error creating ASN range '{asn_range['name']}': "
+                    f"{create_response.status_code} {create_response.text}"
+                )
 
     def create_prefixes(self):
         """Create example prefixes for EDA allocation pools"""
@@ -239,6 +443,8 @@ def main():
     if webhook_id:
         configurator.create_event_rule(webhook_id)
     configurator.create_prefixes()
+    configurator.create_vlan_groups()
+    configurator.create_asn_ranges()
 
     print("\nNetBox configuration completed!")
     print(f"You can now access NetBox at: {netbox_url}")

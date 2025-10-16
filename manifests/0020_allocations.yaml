@@ -75,3 +75,33 @@ spec:
   type: ip-in-subnet
   subnetLength: 32  # Individual IPs with mask
   description: "Management IPs for devices"
+
+---
+# VLAN allocation pool
+apiVersion: netbox.eda.nokia.com/v1alpha1
+kind: Allocation
+metadata:
+  name: nb-vlans
+  namespace: eda-netbox
+spec:
+  enabled: true
+  instance: netbox
+  tags:
+    - eda-vlans
+  type: vlan
+  description: "VLAN IDs managed via NetBox"
+
+---
+# ASN allocation pool
+apiVersion: netbox.eda.nokia.com/v1alpha1
+kind: Allocation
+metadata:
+  name: nb-asns
+  namespace: eda-netbox
+spec:
+  enabled: true
+  instance: netbox
+  tags:
+    - eda-asns
+  type: asn
+  description: "Private ASNs sourced from NetBox"
