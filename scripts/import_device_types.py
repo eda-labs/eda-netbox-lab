@@ -21,7 +21,7 @@ requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 
 DEFAULT_LIBRARY_URL = "https://github.com/netbox-community/devicetype-library.git"
-DEFAULT_LIBRARY_BRANCH = "develop"
+DEFAULT_LIBRARY_BRANCH = "master"
 DEFAULT_K8S_NAMESPACE = "netbox"
 DEFAULT_CLUSTER_NETBOX_URL = "http://netbox-server.netbox.svc.cluster.local"
 
