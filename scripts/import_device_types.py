@@ -82,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--importer-image",
-        default="ghcr.io/minitriga/netbox-device-type-library-import:latest",
+        default="kifeo/netbox-device-type-library-import:latest",
         help="Container image to use for the Kubernetes job",
     )
     return parser.parse_args()
