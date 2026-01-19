@@ -20,7 +20,7 @@ In its default form the lab runs entirely inside the EDA Digital Twin (CX) envir
 ## Requirements
 
 > [!IMPORTANT]
-> **EDA Version:** 25.8.2 or later. Ensure your EDA playground (or production deployment) is installed and healthy before starting the lab.
+> **EDA Version:** 25.12.1 or later. Ensure your EDA playground (or production deployment) is installed and healthy before starting the lab.
 
 1. **Helm** – install from <https://helm.sh/docs/intro/install/>.
 2. **kubectl** – verify the EDA engine status:
@@ -102,6 +102,6 @@ kubectl delete namespace eda-netbox --wait=false
 
 ## Additional Resources
 
-- [EDA NetBox App Guide](https://docs.eda.dev/25.4/apps/netbox/)
+- [EDA NetBox App Guide](https://docs.eda.dev/25.12/apps/netbox/)
 - [NetBox Documentation](https://docs.netbox.dev/)
 - [Containerlab Documentation](https://containerlab.dev/)

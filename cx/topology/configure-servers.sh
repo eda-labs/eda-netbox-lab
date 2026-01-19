@@ -8,8 +8,13 @@ CORE_NS=${CORE_NS:-eda-system}
 servers=(server1 server2)
 
 echo "Waiting for simulation links to be created"
-for link in leaf1-ethernet-1-1 leaf2-ethernet-1-1; do
+for link in leaf1-server1 leaf2-server2; do
   kubectl -n "${TOPO_NS}" wait --for=create simlink "${link}" --timeout=120s
+done
+
+echo "Waiting for server pods to be ready"
+for server in "${servers[@]}"; do
+  kubectl -n "${CORE_NS}" wait --for=condition=ready pod -l "eda.nokia.com/app=sim-${server}" --timeout=120s
 done
 
 for server in "${servers[@]}"; do

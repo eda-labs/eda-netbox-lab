@@ -80,7 +80,7 @@ if [[ -n "$CX_DEP" ]]; then
     IS_CX=true
 
     echo "Labeling SR Linux node profile for bootstrap (if present)..."
-    kubectl -n ${DEFAULT_USER_NS} label nodeprofile srlinux-ghcr-25.7.2 \
+    kubectl -n ${DEFAULT_USER_NS} label nodeprofile srlinux-ghcr-25.10.1 \
         eda.nokia.com/bootstrap=true --overwrite >/dev/null 2>&1 || true
 
     edactl() {
@@ -90,19 +90,9 @@ if [[ -n "$CX_DEP" ]]; then
     }
 
     echo -e "${GREEN}--> Bootstrapping namespace ${ST_STACK_NS}...${RESET}"
-    if ! edactl namespace bootstrap ${ST_STACK_NS} | indent_out; then
+    if ! edactl namespace bootstrap create --from-namespace eda ${ST_STACK_NS} | indent_out; then
         echo "Warning: namespace bootstrap reported an issue; continuing." >&2
     fi
-
-    echo -e "${GREEN}--> Deploying CX topology...${RESET}"
-    bash ./cx/topology/topo.sh load cx/topology/topo.yaml cx/topology/simtopo.yaml | indent_out
-
-    echo -e "${GREEN}--> Waiting for CX nodes to reach Synced state...${RESET}"
-    kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.node-state}'=Synced \
-        toponode --all --timeout=300s | indent_out
-
-    echo -e "${GREEN}--> Configuring CX server containers...${RESET}"
-    bash ./cx/topology/configure-servers.sh | indent_out
 else
     echo -e "${GREEN}Containerlab environment detected (no CX pods found).${RESET}"
     IS_CX=false
@@ -115,8 +105,8 @@ else
 fi
 
 echo "Adding NetBox helm repository..."
-helm repo add netbox https://netbox-community.github.io/netbox-chart/ 2>/dev/null || true
-helm repo update >/dev/null
+helm repo add netbox https://netbox-community.github.io/netbox-chart/ --force-update --insecure-skip-tls-verify
+helm repo update netbox >/dev/null
 
 if helm list -n netbox | grep -q netbox-server; then
     echo "NetBox is already installed. Upgrading..."
@@ -239,15 +229,58 @@ data:
   signatureKey: ${webhook_b64}
 YAML
 
-echo -e "${GREEN}--> Applying EDA resources...${RESET}"
-kubectl apply -f ./manifests | indent_out
-
-echo "Configuring NetBox for EDA integration..."
-uv run scripts/configure_netbox.py | indent_out
-
 if [[ "$IMPORT_NOKIA_DEVICE_TYPES" == "true" ]]; then
     echo "Importing Nokia device types from the NetBox Device Type Library..."
     uv run scripts/import_device_types.py | indent_out
+fi
+
+echo -e "${GREEN}--> Applying NetBox App...${RESET}"
+kubectl apply -f ./manifests/0001_netbox_app_install.yaml | indent_out
+
+echo -e "${GREEN}--> Configuring NetBox for EDA integration...${RESET}"
+uv run scripts/configure_netbox.py | indent_out
+
+echo -e "${GREEN}--> Applying NetBox Instance manifest...${RESET}"
+kubectl apply -f ./manifests/0010_netbox_instance.yaml | indent_out
+
+echo -e "${GREEN}--> Applying Allocations manifest...${RESET}"
+kubectl apply -f ./manifests/0020_allocations.yaml | indent_out
+
+if [[ "$IS_CX" == "true" ]]; then
+    echo -e "${GREEN}--> Waiting for IP pools to be created by NetBox app...${RESET}"
+    for pool in nb-systemip-v4 nb-isl-v4; do
+        echo "Waiting for pool ${pool}..." | indent_out
+        for attempt in {1..60}; do
+            if kubectl -n ${ST_STACK_NS} get ippool "${pool}" >/dev/null 2>&1 || \
+               kubectl -n ${ST_STACK_NS} get subnetpool "${pool}" >/dev/null 2>&1; then
+                echo "Pool ${pool} ready" | indent_out
+                break
+            fi
+            sleep 5
+        done
+    done
+
+    echo -e "${GREEN}--> Deploying CX topology...${RESET}"
+    TOPO_OUTPUT=$(kubectl -n ${ST_STACK_NS} create -f ./cx/topology/lab-topo.yaml)
+    TOPO_NAME=$(echo "$TOPO_OUTPUT" | awk '{print $1}')
+    echo "Created topology resource: ${TOPO_NAME}" | indent_out
+    echo "Waiting for topology deployment to complete..."
+    if ! kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.result}'=Success "$TOPO_NAME" --timeout=300s; then
+        echo "Topology deployment failed. Checking status..." >&2
+        kubectl -n ${ST_STACK_NS} get "$TOPO_NAME" -o jsonpath='{.status}' >&2
+        exit 1
+    fi
+    echo "Topology deployment successful" | indent_out
+
+    echo -e "${GREEN}--> Waiting for CX nodes to reach Synced state...${RESET}"
+    kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.node-state}'=Synced \
+        toponode --all --timeout=300s | indent_out
+
+    echo -e "${GREEN}--> Applying Fabric manifest...${RESET}"
+    kubectl apply -f ./manifests/0060_fabric.yaml | indent_out
+
+    echo -e "${GREEN}--> Configuring CX server containers...${RESET}"
+    bash ./cx/topology/configure-servers.sh | indent_out
 fi
 
 echo ""
@@ -272,3 +305,7 @@ echo "==================================="
 echo "NetBox URL: $NETBOX_URL"
 echo "Username: admin"
 echo "Password: netbox"
+echo ""
+echo "If you cannot reach NetBox, use port-forward:"
+echo "  kubectl -n netbox port-forward svc/netbox-server --address 0.0.0.0 8080:80"
+echo "  Then access: http://localhost:8080"

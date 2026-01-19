@@ -10,7 +10,7 @@ ip addr add 10.1.2.10/24 dev eth1 2>/dev/null || true
 sysctl -w net.ipv4.ip_forward=1
 sysctl -w net.ipv6.conf.all.forwarding=1
 
-# Start nginx for testing
-nginx
+# Start nginx for testing (may already be running in newer multitool images)
+nginx 2>/dev/null || true
 
 echo "Server2 configuration completed"

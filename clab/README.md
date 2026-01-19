@@ -3,7 +3,7 @@
 - **EDA Mode:** `Simulate=False` – integrates external Containerlab SR Linux nodes
 - **Namespace:** `eda-netbox`
 - **Automation:** `init.sh` installs NetBox, seeds secrets, and applies manifests. Containerlab brings up the fabric.
-- **License:** Requires a valid EDA hardware license (25.8+) when running with Simulate=False.
+- **License:** Requires a valid EDA hardware license (25.12+) when running with Simulate=False.
 - **Traffic Generation:** Basic nginx workloads on server containers (can be extended with your own tooling).
 
 > [!IMPORTANT]
@@ -13,7 +13,7 @@
 
 ## Common Requirements
 
-1. **EDA (25.8.2+)** with Simulate=False mode
+1. **EDA (25.12.1+)** with Simulate=False mode
 2. **Helm** – <https://helm.sh/docs/intro/install/>
 3. **kubectl** – verify EDA status:
    ```bash

@@ -1,0 +1,111 @@
+apiVersion: topologies.eda.nokia.com/v1alpha1
+kind: NetworkTopology
+metadata:
+  generateName: netbox-lab-
+  namespace: eda-netbox
+spec:
+  operation: replaceAll
+  nodeTemplates:
+  - name: leaf
+    nodeProfile: srlinux-ghcr-25.10.1
+    platform: 7220 IXR-D2L
+    labels:
+      eda.nokia.com/security-profile: managed
+      eda.nokia.com/role: leaf
+  - name: spine
+    nodeProfile: srlinux-ghcr-25.10.1
+    platform: 7220 IXR-D3L
+    labels:
+      eda.nokia.com/security-profile: managed
+      eda.nokia.com/role: spine
+
+  nodes:
+  - name: leaf1
+    template: leaf
+  - name: leaf2
+    template: leaf
+  - name: spine1
+    template: spine
+  - name: spine2
+    template: spine
+
+  linkTemplates:
+  - name: isl
+    type: interSwitch
+    labels:
+      eda.nokia.com/role: interSwitch
+  - name: edge
+    type: edge
+    labels:
+      eda.nokia.com/role: edge
+
+  links:
+  # Inter-switch links (ISL) between leaves and spines
+  - name: leaf1-spine1
+    template: isl
+    endpoints:
+    - local:
+        node: leaf1
+        interface: ethernet-1-49
+      remote:
+        node: spine1
+        interface: ethernet-1-1
+  - name: leaf1-spine2
+    template: isl
+    endpoints:
+    - local:
+        node: leaf1
+        interface: ethernet-1-50
+      remote:
+        node: spine2
+        interface: ethernet-1-1
+  - name: leaf2-spine1
+    template: isl
+    endpoints:
+    - local:
+        node: leaf2
+        interface: ethernet-1-49
+      remote:
+        node: spine1
+        interface: ethernet-1-2
+  - name: leaf2-spine2
+    template: isl
+    endpoints:
+    - local:
+        node: leaf2
+        interface: ethernet-1-50
+      remote:
+        node: spine2
+        interface: ethernet-1-2
+
+  # Edge links to servers
+  - name: leaf1-server1
+    template: edge
+    endpoints:
+    - local:
+        node: leaf1
+        interface: ethernet-1-1
+      sim:
+        simNode: server1
+        simNodeInterface: eth1
+
+  - name: leaf2-server2
+    template: edge
+    endpoints:
+    - local:
+        node: leaf2
+        interface: ethernet-1-1
+      sim:
+        simNode: server2
+        simNodeInterface: eth1
+
+  simulation:
+    simNodeTemplates:
+    - name: multitool
+      type: Linux
+      image: ghcr.io/srl-labs/network-multitool:v0.5.0
+    simNodes:
+    - name: server1
+      template: multitool
+    - name: server2
+      template: multitool

@@ -58,6 +58,26 @@ class NetBoxConfigurator:
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
+        self.tenant_id = None
+        self.site_id = None
+
+    def get_tenant(self, name="eda"):
+        """Get tenant created by EDA Instance"""
+        response = self.session.get(f"{self.netbox_url}/api/tenancy/tenants/?name={name}")
+        data = response.json()
+        if data.get("count", 0) > 0:
+            self.tenant_id = data["results"][0]["id"]
+            return self.tenant_id
+        return None
+
+    def get_site(self, tenant_name="eda"):
+        """Get site created by EDA Instance"""
+        response = self.session.get(f"{self.netbox_url}/api/dcim/sites/?tenant={tenant_name}")
+        data = response.json()
+        if data.get("count", 0) > 0:
+            self.site_id = data["results"][0]["id"]
+            return self.site_id
+        return None
 
     def wait_for_netbox(self, max_retries=30):
         """Wait for NetBox to be ready"""
@@ -403,12 +423,35 @@ class NetBoxConfigurator:
 
         print("Creating prefixes...")
         for prefix_data in prefixes:
+            # Add tenant and site if available
+            if self.tenant_id:
+                prefix_data["tenant"] = self.tenant_id
+            if self.site_id:
+                prefix_data["site"] = self.site_id
+
             # Check if prefix exists
             response = self.session.get(
                 f"{self.netbox_url}/api/ipam/prefixes/?prefix={prefix_data['prefix']}"
             )
             if response.json()["count"] > 0:
-                print(f"Prefix '{prefix_data['prefix']}' already exists")
+                existing = response.json()["results"][0]
+                # Update tenant/site if missing
+                patch_data = {}
+                if self.tenant_id and not existing.get("tenant"):
+                    patch_data["tenant"] = self.tenant_id
+                if self.site_id and not existing.get("site"):
+                    patch_data["site"] = self.site_id
+                if patch_data:
+                    patch_resp = self.session.patch(
+                        f"{self.netbox_url}/api/ipam/prefixes/{existing['id']}/",
+                        json=patch_data
+                    )
+                    if patch_resp.status_code == 200:
+                        print(f"Prefix '{prefix_data['prefix']}' updated with tenant/site")
+                    else:
+                        print(f"Error updating prefix '{prefix_data['prefix']}': {patch_resp.text}")
+                else:
+                    print(f"Prefix '{prefix_data['prefix']}' already exists")
                 continue
 
             response = self.session.post(
@@ -437,7 +480,9 @@ def main():
         print("NetBox is not ready. Please check the deployment.")
         sys.exit(1)
 
-    # Configure NetBox
+    # Configure NetBox - get EDA-created tenant and site
+    configurator.get_tenant("eda")
+    configurator.get_site("eda")
     configurator.create_tags()
     webhook_id = configurator.create_webhook(eda_api)
     if webhook_id:

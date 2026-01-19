@@ -97,6 +97,8 @@ def render_job_manifest(
     library_url: str,
     library_branch: str,
 ) -> str:
+    import os
+
     vendor_value = ",".join(vendors)
     # Build YAML manually to avoid adding PyYAML dependency for the controller.
     lines = [
@@ -128,6 +130,33 @@ def render_job_manifest(
         "              name: netbox-server-superuser",
         "              key: api_token",
     ]
+
+    # Add proxy settings from environment if present
+    cluster_no_proxy = ".local,.svc,.cluster.local,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1"
+    http_proxy = os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+    https_proxy = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY") or http_proxy
+    no_proxy = os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""
+    if no_proxy:
+        no_proxy = f"{no_proxy},{cluster_no_proxy}"
+    else:
+        no_proxy = cluster_no_proxy
+
+    if http_proxy:
+        lines.extend([
+            f"        - name: HTTP_PROXY",
+            f"          value: \"{http_proxy}\"",
+            f"        - name: http_proxy",
+            f"          value: \"{http_proxy}\"",
+            f"        - name: HTTPS_PROXY",
+            f"          value: \"{https_proxy}\"",
+            f"        - name: https_proxy",
+            f"          value: \"{https_proxy}\"",
+            f"        - name: NO_PROXY",
+            f"          value: \"{no_proxy}\"",
+            f"        - name: no_proxy",
+            f"          value: \"{no_proxy}\"",
+        ])
+
     return "\n".join(lines)
 
 

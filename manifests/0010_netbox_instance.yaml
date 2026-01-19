@@ -7,3 +7,8 @@ spec:
   url: http://netbox-server.netbox.svc.cluster.local
   apiToken: netbox-api-token
   signatureKey: netbox-webhook-signature
+  disableWebhook: false
+  sync:
+    enabled: true
+    region: eda
+    tenant: eda
