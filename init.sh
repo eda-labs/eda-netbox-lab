@@ -18,24 +18,17 @@ RESET="\033[0m"
 ST_STACK_NS=eda-netbox
 DEFAULT_USER_NS=eda
 
-IMPORT_NOKIA_DEVICE_TYPES=false
-
 usage() {
     cat <<USAGE
 Usage: $0 [options]
 
 Options:
-  --import-nokia-device-types  Import Nokia device types using the community Device Type Library importer once NetBox is ready.
-  -h, --help                   Show this help message.
+  -h, --help    Show this help message.
 USAGE
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --import-nokia-device-types)
-            IMPORT_NOKIA_DEVICE_TYPES=true
-            shift
-            ;;
         -h|--help)
             usage
             exit 0
@@ -78,10 +71,6 @@ ensure_progress_deadline() {
 if [[ -n "$CX_DEP" ]]; then
     echo -e "${GREEN}--> EDA CX environment detected. Using CX resources.${RESET}"
     IS_CX=true
-
-    echo "Labeling SR Linux node profile for bootstrap (if present)..."
-    kubectl -n ${DEFAULT_USER_NS} label nodeprofile srlinux-ghcr-25.10.1 \
-        eda.nokia.com/bootstrap=true --overwrite >/dev/null 2>&1 || true
 
     edactl() {
         kubectl -n eda-system exec \
@@ -229,10 +218,8 @@ data:
   signatureKey: ${webhook_b64}
 YAML
 
-if [[ "$IMPORT_NOKIA_DEVICE_TYPES" == "true" ]]; then
-    echo "Importing Nokia device types from the NetBox Device Type Library..."
-    uv run scripts/import_device_types.py | indent_out
-fi
+echo -e "${GREEN}--> Importing Nokia device types...${RESET}"
+uv run scripts/import_device_types.py | indent_out
 
 echo -e "${GREEN}--> Applying NetBox App...${RESET}"
 kubectl apply -f ./manifests/0001_netbox_app_install.yaml | indent_out
@@ -247,19 +234,6 @@ echo -e "${GREEN}--> Applying Allocations manifest...${RESET}"
 kubectl apply -f ./manifests/0020_allocations.yaml | indent_out
 
 if [[ "$IS_CX" == "true" ]]; then
-    echo -e "${GREEN}--> Waiting for IP pools to be created by NetBox app...${RESET}"
-    for pool in nb-systemip-v4 nb-isl-v4; do
-        echo "Waiting for pool ${pool}..." | indent_out
-        for attempt in {1..60}; do
-            if kubectl -n ${ST_STACK_NS} get ippool "${pool}" >/dev/null 2>&1 || \
-               kubectl -n ${ST_STACK_NS} get subnetpool "${pool}" >/dev/null 2>&1; then
-                echo "Pool ${pool} ready" | indent_out
-                break
-            fi
-            sleep 5
-        done
-    done
-
     echo -e "${GREEN}--> Deploying CX topology...${RESET}"
     TOPO_OUTPUT=$(kubectl -n ${ST_STACK_NS} create -f ./cx/topology/lab-topo.yaml)
     TOPO_NAME=$(echo "$TOPO_OUTPUT" | awk '{print $1}')
@@ -276,12 +250,12 @@ if [[ "$IS_CX" == "true" ]]; then
     kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.node-state}'=Synced \
         toponode --all --timeout=300s | indent_out
 
-    echo -e "${GREEN}--> Applying Fabric manifest...${RESET}"
-    kubectl apply -f ./manifests/0060_fabric.yaml | indent_out
-
     echo -e "${GREEN}--> Configuring CX server containers...${RESET}"
     bash ./cx/topology/configure-servers.sh | indent_out
 fi
+
+echo -e "${GREEN}--> Applying Fabric manifest...${RESET}"
+kubectl apply -f ./manifests/0060_fabric.yaml | indent_out
 
 echo ""
 if [[ "$IS_CX" == "true" ]]; then
