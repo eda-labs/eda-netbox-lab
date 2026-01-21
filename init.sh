@@ -224,14 +224,35 @@ uv run scripts/import_device_types.py | indent_out
 echo -e "${GREEN}--> Applying NetBox App...${RESET}"
 kubectl apply -f ./manifests/0001_netbox_app_install.yaml | indent_out
 
-echo -e "${GREEN}--> Configuring NetBox for EDA integration...${RESET}"
-uv run scripts/configure_netbox.py | indent_out
-
 echo -e "${GREEN}--> Applying NetBox Instance manifest...${RESET}"
 kubectl apply -f ./manifests/0010_netbox_instance.yaml | indent_out
 
+echo -e "${GREEN}--> Waiting for NetBox site to be synced...${RESET}"
+for i in {1..30}; do
+    SITE_COUNT=$(curl -s -H "Authorization: Token ${NETBOX_API_TOKEN}" \
+        "${NETBOX_URL}/api/dcim/sites/?cf_objectName=${ST_STACK_NS}/netbox" | \
+        python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo 0)
+    if [[ "$SITE_COUNT" -gt 0 ]]; then
+        echo "Site synced successfully" | indent_out
+        break
+    fi
+    echo "Waiting for site... ($i/30)" | indent_out
+    sleep 5
+done
+
+echo -e "${GREEN}--> Configuring NetBox for EDA integration...${RESET}"
+uv run scripts/configure_netbox.py | indent_out
+
 echo -e "${GREEN}--> Applying Allocations manifest...${RESET}"
 kubectl apply -f ./manifests/0020_allocations.yaml | indent_out
+
+# Workaround: Recreate Instance to trigger fresh ping cycle
+# The eda-netbox controller's ping routine can get stuck after the first run
+# This must happen AFTER configure_netbox.py creates prefixes/vlans/asns
+echo -e "${GREEN}--> Triggering Instance reconciliation...${RESET}"
+kubectl delete instance netbox -n ${ST_STACK_NS} --wait=true >/dev/null 2>&1
+kubectl apply -f ./manifests/0010_netbox_instance.yaml >/dev/null 2>&1
+sleep 5
 
 if [[ "$IS_CX" == "true" ]]; then
     echo -e "${GREEN}--> Deploying CX topology...${RESET}"
