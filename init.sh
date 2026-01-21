@@ -181,12 +181,15 @@ fi
 
 echo "$NETBOX_URL" > .netbox_url
 
-EDA_API=$(uv run ./scripts/get_eda_api.py)
-if [[ -z "$EDA_API" ]]; then
-    echo "No EDA API address found. Exiting."
+if [[ -z "${EDA_URL:-}" ]]; then
+    echo "Error: EDA_URL environment variable is required."
+    echo "Example: EDA_URL=https://eda.example.com:9443 ./init.sh"
     exit 1
 fi
+# Extract host:port from EDA_URL (strip protocol)
+EDA_API=$(echo "$EDA_URL" | sed -E 's|^https?://||')
 echo "$EDA_API" > .eda_api_address
+echo "EDA API address: $EDA_API"
 
 NETBOX_API_TOKEN=$(kubectl -n netbox get secret netbox-server-superuser -o jsonpath='{.data.api_token}' | base64 -d)
 
