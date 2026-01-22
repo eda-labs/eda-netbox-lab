@@ -2,11 +2,13 @@ apiVersion: netbox.eda.nokia.com/v1alpha1
 kind: Instance
 metadata:
   name: netbox
-  namespace: clab-eda-nb
+  namespace: eda-netbox
 spec:
-  # URL will be updated by init script
   url: http://netbox-server.netbox.svc.cluster.local
-  # Reference to the secret containing the API token
   apiToken: netbox-api-token
-  # Reference to the secret containing the webhook signature
   signatureKey: netbox-webhook-signature
+  disableWebhook: false
+  sync:
+    enabled: true
+    region: eda
+    tenant: eda

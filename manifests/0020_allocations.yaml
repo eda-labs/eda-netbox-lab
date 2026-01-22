@@ -4,7 +4,7 @@ apiVersion: netbox.eda.nokia.com/v1alpha1
 kind: Allocation
 metadata:
   name: nb-systemip-v4
-  namespace: clab-eda-nb
+  namespace: eda-netbox
 spec:
   enabled: true
   instance: netbox
@@ -19,7 +19,7 @@ apiVersion: netbox.eda.nokia.com/v1alpha1
 kind: Allocation
 metadata:
   name: nb-systemip-v6
-  namespace: clab-eda-nb
+  namespace: eda-netbox
 spec:
   enabled: true
   instance: netbox
@@ -34,7 +34,7 @@ apiVersion: netbox.eda.nokia.com/v1alpha1
 kind: Allocation
 metadata:
   name: nb-isl-v4
-  namespace: clab-eda-nb
+  namespace: eda-netbox
 spec:
   enabled: true
   instance: netbox
@@ -50,7 +50,7 @@ apiVersion: netbox.eda.nokia.com/v1alpha1
 kind: Allocation
 metadata:
   name: nb-isl-v6
-  namespace: clab-eda-nb
+  namespace: eda-netbox
 spec:
   enabled: true
   instance: netbox
@@ -66,7 +66,7 @@ apiVersion: netbox.eda.nokia.com/v1alpha1
 kind: Allocation
 metadata:
   name: nb-mgmt-v4
-  namespace: clab-eda-nb
+  namespace: eda-netbox
 spec:
   enabled: true
   instance: netbox
@@ -75,3 +75,33 @@ spec:
   type: ip-in-subnet
   subnetLength: 32  # Individual IPs with mask
   description: "Management IPs for devices"
+
+---
+# VLAN allocation pool
+apiVersion: netbox.eda.nokia.com/v1alpha1
+kind: Allocation
+metadata:
+  name: nb-vlans
+  namespace: eda-netbox
+spec:
+  enabled: true
+  instance: netbox
+  tags:
+    - eda-vlans
+  type: vlan
+  description: "VLAN IDs managed via NetBox"
+
+---
+# ASN allocation pool
+apiVersion: netbox.eda.nokia.com/v1alpha1
+kind: Allocation
+metadata:
+  name: nb-asns
+  namespace: eda-netbox
+spec:
+  enabled: true
+  instance: netbox
+  tags:
+    - eda-asns
+  type: asn
+  description: "Private ASNs sourced from NetBox"
