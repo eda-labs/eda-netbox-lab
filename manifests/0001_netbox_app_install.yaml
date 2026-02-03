@@ -8,9 +8,8 @@ spec:
   input:
     operation: install
     apps:
-      - app: netbox
+      - appId: netbox.eda.nokia.com
         catalog: eda-catalog-builtin-apps
-        vendor: nokia
         version:
           type: semver
           value: v3.0.0
