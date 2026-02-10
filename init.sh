@@ -48,9 +48,9 @@ CX_DEP=$(kubectl get -A deployment -l eda.nokia.com/app=cx 2>/dev/null | grep ed
 ensure_progress_deadline() {
     local deployment=$1
     local namespace=${2:-netbox}
-    local deadline=${3:-1200}
-    local attempts=12
-    local wait_seconds=5
+    local deadline=${3:-1800}
+    local attempts=24
+    local wait_seconds=10
 
     for ((i=1; i<=attempts; i++)); do
         if kubectl -n "${namespace}" get deployment "${deployment}" >/dev/null 2>&1; then
@@ -137,9 +137,9 @@ fi
 ensure_progress_deadline netbox-server
 ensure_progress_deadline netbox-server-worker
 
-echo "Waiting for NetBox pods to be ready (this can take up to 15 minutes, check kubectl get pods -n netbox)..."
+echo "Waiting for NetBox pods to be ready (this can take up to 30 minutes, check kubectl get pods -n netbox)..."
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=netbox \
-    --field-selector=status.phase!=Succeeded -n netbox --timeout=900s >/dev/null
+    --field-selector=status.phase!=Succeeded -n netbox --timeout=1800s >/dev/null
 
 SERVICE_TYPE=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.spec.type}')
 echo "NetBox service type: $SERVICE_TYPE"
@@ -147,7 +147,7 @@ echo "NetBox service type: $SERVICE_TYPE"
 NETBOX_URL=""
 if [[ "$SERVICE_TYPE" == "LoadBalancer" ]]; then
     echo "Waiting for NetBox LoadBalancer address..."
-    for attempt in {1..30}; do
+    for attempt in {1..60}; do
         ADDR=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
         if [[ -z "$ADDR" ]]; then
             ADDR=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
@@ -157,7 +157,7 @@ if [[ "$SERVICE_TYPE" == "LoadBalancer" ]]; then
             echo "LoadBalancer reachable at: $NETBOX_URL"
             break
         fi
-        echo "Waiting for external address... (attempt ${attempt}/30)"
+        echo "Waiting for external address... (attempt ${attempt}/60)"
         sleep 10
     done
 fi
@@ -227,11 +227,26 @@ uv run scripts/import_device_types.py | indent_out
 echo -e "${GREEN}--> Applying NetBox App...${RESET}"
 kubectl apply -f ./manifests/0001_netbox_app_install.yaml | indent_out
 
+echo -e "${GREEN}--> Waiting for NetBox CRD to be installed...${RESET}"
+for i in {1..60}; do
+    if kubectl get crd instances.netbox.eda.nokia.com >/dev/null 2>&1; then
+        echo "NetBox CRD is ready" | indent_out
+        break
+    fi
+    echo "Waiting for CRD... ($i/60)" | indent_out
+    sleep 5
+done
+
+if ! kubectl get crd instances.netbox.eda.nokia.com >/dev/null 2>&1; then
+    echo "Error: NetBox CRD not installed after 5 minutes" >&2
+    exit 1
+fi
+
 echo -e "${GREEN}--> Applying NetBox Instance manifest...${RESET}"
 kubectl apply -f ./manifests/0010_netbox_instance.yaml | indent_out
 
 echo -e "${GREEN}--> Waiting for NetBox site to be synced...${RESET}"
-for i in {1..30}; do
+for i in {1..60}; do
     SITE_COUNT=$(curl -s -H "Authorization: Token ${NETBOX_API_TOKEN}" \
         "${NETBOX_URL}/api/dcim/sites/?cf_objectName=${ST_STACK_NS}/netbox" | \
         python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))" 2>/dev/null || echo 0)
@@ -239,8 +254,8 @@ for i in {1..30}; do
         echo "Site synced successfully" | indent_out
         break
     fi
-    echo "Waiting for site... ($i/30)" | indent_out
-    sleep 5
+    echo "Waiting for site... ($i/60)" | indent_out
+    sleep 10
 done
 
 echo -e "${GREEN}--> Configuring NetBox for EDA integration...${RESET}"
@@ -263,7 +278,7 @@ if [[ "$IS_CX" == "true" ]]; then
     TOPO_NAME=$(echo "$TOPO_OUTPUT" | awk '{print $1}')
     echo "Created topology resource: ${TOPO_NAME}" | indent_out
     echo "Waiting for topology deployment to complete..."
-    if ! kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.result}'=Success "$TOPO_NAME" --timeout=300s; then
+    if ! kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.result}'=Success "$TOPO_NAME" --timeout=600s; then
         echo "Topology deployment failed. Checking status..." >&2
         kubectl -n ${ST_STACK_NS} get "$TOPO_NAME" -o jsonpath='{.status}' >&2
         exit 1
@@ -272,7 +287,7 @@ if [[ "$IS_CX" == "true" ]]; then
 
     echo -e "${GREEN}--> Waiting for CX nodes to reach Synced state...${RESET}"
     kubectl -n ${ST_STACK_NS} wait --for=jsonpath='{.status.node-state}'=Synced \
-        toponode --all --timeout=300s | indent_out
+        toponode --all --timeout=600s | indent_out
 
     echo -e "${GREEN}--> Configuring CX server containers...${RESET}"
     bash ./cx/topology/configure-servers.sh | indent_out
