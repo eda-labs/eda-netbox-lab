@@ -53,7 +53,7 @@ Replace `eda.example.com:9443` with your actual EDA external domain/IP and HTTPS
 
 ### Verify Deployment
 
-1. **NetBox UI:** The URL is printed at the end of `init.sh` and stored in `.netbox_url`. Default credentials: `admin` / `netbox`.
+1. **NetBox UI:** https://<eda-url>/core/httpproxy/v1/netbox-ui/  Default credentials: `admin` / `netbox`.
 2. **EDA Namespace:**
    ```bash
    kubectl get toponode -n eda-netbox

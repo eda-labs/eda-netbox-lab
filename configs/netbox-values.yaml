@@ -13,6 +13,16 @@ overrideUnitConfig:
   routes:
     main:
       - match:
+          uri: "/api/*"
+        action:
+          rewrite: "`/core/httpproxy/v1/netbox-ui${uri}`"
+          pass: applications/netbox
+      - match:
+          uri: "/api/"
+        action:
+          rewrite: "`/core/httpproxy/v1/netbox-ui${uri}`"
+          pass: applications/netbox
+      - match:
           uri: "/core/httpproxy/v1/netbox-ui/static/*"
         action:
           rewrite: "`${uri.replace('/core/httpproxy/v1/netbox-ui', '')}`"

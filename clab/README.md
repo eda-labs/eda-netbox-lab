@@ -13,7 +13,7 @@
 
 ## Common Requirements
 
-1. **EDA (25.12.1+)** with Simulate=False mode
+1. **EDA (26.4.1+)** with Simulate=False mode
 2. **Helm** – <https://helm.sh/docs/intro/install/>
 3. **kubectl** – verify EDA status:
    ```bash
@@ -54,7 +54,7 @@ clab-connector integrate \
 
 ## Step 4: Validate the Deployment
 
-1. **NetBox UI:** Open the URL stored in `.netbox_url` (`admin` / `netbox`)
+1. **NetBox UI:** https://<eda-url>/core/httpproxy/v1/netbox-ui/
 2. **EDA namespace:**
    ```bash
    kubectl get toponode -n eda-netbox
