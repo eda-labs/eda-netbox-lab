@@ -1,26 +1,26 @@
-apiVersion: fabrics.eda.nokia.com/v1alpha1
+apiVersion: fabrics.eda.nokia.com/v1
 kind: Fabric
 metadata:
   name: netbox-ebgp-fabric
   namespace: eda-netbox
 spec:
   leafs:
-    leafNodeSelector:
+    leafNodeSelectors:
       - eda.nokia.com/role=leaf
   spines:
-    spineNodeSelector:
+    spineNodeSelectors:
       - eda.nokia.com/role=spine
   interSwitchLinks:
-    linkSelector:
+    linkSelectors:
       - eda.nokia.com/role=interSwitch
-    poolIPV4: nb-isl-v4
-    poolIPV6: nb-isl-v6
-  systemPoolIPV4: nb-systemip-v4
-  systemPoolIPV6: nb-systemip-v6
+    poolIPv4: nb-isl-v4
+    poolIPv6: nb-isl-v6
+  systemPoolIPv4: nb-systemip-v4
+  systemPoolIPv6: nb-systemip-v6
   underlayProtocol:
     bgp:
       asnPool: asn-pool
-    protocol:
+    protocols:
       - EBGP
   overlayProtocol:
     protocol: EBGP

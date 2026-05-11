@@ -18,7 +18,12 @@ def read_config_files():
             netbox_url = f.read().strip()
         with open(".eda_api_address", "r") as f:
             eda_api = f.read().strip()
-        return netbox_url, eda_api
+        try:
+            with open(".netbox_ui_url", "r") as f:
+                netbox_ui_url = f.read().strip()
+        except FileNotFoundError:
+            netbox_ui_url = f"https://{eda_api}/core/httpproxy/v1/netbox-ui"
+        return netbox_url, eda_api, netbox_ui_url
     except FileNotFoundError:
         print("Error: Configuration file not found. Run init.sh first.")
         sys.exit(1)
@@ -467,10 +472,10 @@ class NetBoxConfigurator:
 
 def main():
     """Main configuration function"""
-    netbox_url, eda_api = read_config_files()
+    netbox_url, eda_api, netbox_ui_url = read_config_files()
     api_token = get_api_token()
 
-    print(f"NetBox URL: {netbox_url}")
+    print(f"NetBox URL: {netbox_ui_url}")
     print(f"EDA API: {eda_api}")
 
     configurator = NetBoxConfigurator(netbox_url, api_token)
@@ -492,7 +497,7 @@ def main():
     configurator.create_asn_ranges()
 
     print("\nNetBox configuration completed!")
-    print(f"You can now access NetBox at: {netbox_url}")
+    print(f"You can now access NetBox at: {netbox_ui_url}")
     print("Username: admin")
     print("Password: netbox")
 

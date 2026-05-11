@@ -20,7 +20,7 @@ In its default form the lab runs entirely inside the EDA Digital Twin (CX) envir
 ## Requirements
 
 > [!IMPORTANT]
-> **EDA Version:** 25.12.1 or later. Ensure your EDA playground (or production deployment) is installed and healthy before starting the lab.
+> **EDA Version:** 26.4.1 or later. Ensure your EDA playground (or production deployment) is installed and healthy before starting the lab.
 
 1. **Helm** – install from <https://helm.sh/docs/intro/install/>.
 2. **kubectl** – verify the EDA engine status:
@@ -46,14 +46,14 @@ The `init.sh` script performs the entire CX deployment flow:
 EDA_URL=https://eda.example.com:9443 ./init.sh
 ```
 
-Replace `eda.example.com:9443` with your actual EDA external domain/IP and HTTPS port.
+Replace `eda.example.com:9443` with your actual EDA external domain/IP and HTTPS port. `EDA_URL` is also used as NetBox's trusted CSRF origin for the EDA httpProxy UI path.
 
 > [!NOTE]
 > The script detects CX automatically. If CX pods are not present it prepares the environment for the Containerlab workflow—follow the instructions in [`clab/README.md`](./clab/README.md) to continue with that path.
 
 ### Verify Deployment
 
-1. **NetBox UI:** The URL is printed at the end of `init.sh` and stored in `.netbox_url`. Default credentials: `admin` / `netbox`.
+1. **NetBox UI:** https://<eda-url>/core/httpproxy/v1/netbox-ui/  Default credentials: `admin` / `netbox`.
 2. **EDA Namespace:**
    ```bash
    kubectl get toponode -n eda-netbox
@@ -69,6 +69,7 @@ Replace `eda.example.com:9443` with your actual EDA external domain/IP and HTTPS
 - **SR Linux nodes (CX):** `./cx/node-ssh leaf1`
 - **Server containers (CX):** `./cx/container-shell server1`
 - **NetBox API token:** stored as the `netbox-api-token` secret in the `eda-netbox` namespace
+- **NetBox UI URL:** saved locally in `.netbox_ui_url`
 - **EDA API endpoint:** saved locally in `.eda_api_address` for use with `clab-connector` or custom tooling
 
 ## Working with NetBox Integration
@@ -96,6 +97,6 @@ kubectl delete namespace eda-netbox --wait=false
 
 ## Additional Resources
 
-- [EDA NetBox App Guide](https://docs.eda.dev/25.12/apps/netbox/)
+- [EDA NetBox App Guide](https://docs.eda.dev/26.4/apps/netbox/)
 - [NetBox Documentation](https://docs.netbox.dev/)
 - [Containerlab Documentation](https://containerlab.dev/)

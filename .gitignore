@@ -4,6 +4,7 @@ clab-eda-nb/
 
 # Local configuration files
 .netbox_url
+.netbox_ui_url
 .eda_api_address
 
 # Python

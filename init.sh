@@ -17,6 +17,9 @@ RESET="\033[0m"
 
 ST_STACK_NS=eda-netbox
 DEFAULT_USER_NS=eda
+NETBOX_CHART_REF=${NETBOX_CHART_REF:-oci://ghcr.io/netbox-community/netbox-chart/netbox}
+NETBOX_CHART_VERSION=${NETBOX_CHART_VERSION:-6.0.52}
+NETBOX_HELM_EXTRA_ARGS=()
 
 usage() {
     cat <<USAGE
@@ -40,6 +43,20 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -z "${EDA_URL:-}" ]]; then
+    echo "Error: EDA_URL environment variable is required."
+    echo "Example: EDA_URL=https://eda.example.com:9443 ./init.sh"
+    exit 1
+fi
+
+EDA_URL=${EDA_URL%/}
+NETBOX_UI_URL="${EDA_URL}/core/httpproxy/v1/netbox-ui"
+NETBOX_CSRF_TRUSTED_ORIGIN=${NETBOX_CSRF_TRUSTED_ORIGIN:-${EDA_URL}}
+NETBOX_CSRF_TRUSTED_ORIGIN=${NETBOX_CSRF_TRUSTED_ORIGIN%/}
+if [[ -n "${NETBOX_CSRF_TRUSTED_ORIGIN}" ]]; then
+    NETBOX_HELM_EXTRA_ARGS+=(--set "csrf.trustedOrigins[0]=${NETBOX_CSRF_TRUSTED_ORIGIN}")
+fi
 
 ensure_uv
 
@@ -93,13 +110,11 @@ else
     kubectl get namespace ${ST_STACK_NS} >/dev/null 2>&1 || kubectl create namespace ${ST_STACK_NS}
 fi
 
-echo "Adding NetBox helm repository..."
-helm repo add netbox https://netbox-community.github.io/netbox-chart/ --force-update --insecure-skip-tls-verify
-helm repo update netbox >/dev/null
+echo "Using NetBox helm chart ${NETBOX_CHART_REF} version ${NETBOX_CHART_VERSION}..."
 
 if helm list -n netbox | grep -q netbox-server; then
     echo "NetBox is already installed. Upgrading..."
-    helm upgrade netbox-server netbox/netbox \
+    helm upgrade netbox-server "${NETBOX_CHART_REF}" \
         --namespace=netbox \
         -f configs/netbox-values.yaml \
         --set postgresql.auth.password=netbox123 \
@@ -113,10 +128,11 @@ if helm list -n netbox | grep -q netbox-server; then
         --set postgresql.image.tag=17.5.0-debian-12-r9 \
         --set valkey.image.repository=bitnamilegacy/valkey \
         --set valkey.image.tag=8.1.3-debian-12-r3 \
-        --version 6.0.52 >/dev/null
+        "${NETBOX_HELM_EXTRA_ARGS[@]}" \
+        --version "${NETBOX_CHART_VERSION}" >/dev/null
 else
     echo "Installing NetBox helm chart..."
-    helm install netbox-server netbox/netbox \
+    helm install netbox-server "${NETBOX_CHART_REF}" \
         --create-namespace \
         --namespace=netbox \
         -f configs/netbox-values.yaml \
@@ -131,7 +147,8 @@ else
         --set postgresql.image.tag=17.5.0-debian-12-r9 \
         --set valkey.image.repository=bitnamilegacy/valkey \
         --set valkey.image.tag=8.1.3-debian-12-r3 \
-        --version 6.0.52 >/dev/null
+        "${NETBOX_HELM_EXTRA_ARGS[@]}" \
+        --version "${NETBOX_CHART_VERSION}" >/dev/null
 fi
 
 ensure_progress_deadline netbox-server
@@ -140,6 +157,9 @@ ensure_progress_deadline netbox-server-worker
 echo "Waiting for NetBox pods to be ready (this can take up to 30 minutes, check kubectl get pods -n netbox)..."
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=netbox \
     --field-selector=status.phase!=Succeeded -n netbox --timeout=1800s >/dev/null
+
+echo -e "${GREEN}--> Applying NetBox UI HttpProxy...${RESET}"
+kubectl apply -f ./manifests/0005_netbox_ui_httpproxy.yaml | indent_out
 
 SERVICE_TYPE=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.spec.type}')
 echo "NetBox service type: $SERVICE_TYPE"
@@ -153,7 +173,7 @@ if [[ "$SERVICE_TYPE" == "LoadBalancer" ]]; then
             ADDR=$(kubectl get svc netbox-server -n netbox -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
         fi
         if [[ -n "$ADDR" ]]; then
-            NETBOX_URL="http://${ADDR}"
+            NETBOX_URL="http://${ADDR}/core/httpproxy/v1/netbox-ui"
             echo "LoadBalancer reachable at: $NETBOX_URL"
             break
         fi
@@ -171,21 +191,17 @@ if [[ -z "$NETBOX_URL" ]]; then
     sleep 5
     if ps -p $PORT_FORWARD_PID >/dev/null; then
         HOST_IP=$(hostname -I | awk '{print $1}')
-        NETBOX_URL="http://${HOST_IP}:8001"
+        NETBOX_URL="http://${HOST_IP}:8001/core/httpproxy/v1/netbox-ui"
         echo "NetBox port-forward active (PID $PORT_FORWARD_PID)"
     else
         echo "Port-forward failed to start; please configure manually."
-        NETBOX_URL="http://localhost:8001"
+        NETBOX_URL="http://localhost:8001/core/httpproxy/v1/netbox-ui"
     fi
 fi
 
 echo "$NETBOX_URL" > .netbox_url
+echo "$NETBOX_UI_URL" > .netbox_ui_url
 
-if [[ -z "${EDA_URL:-}" ]]; then
-    echo "Error: EDA_URL environment variable is required."
-    echo "Example: EDA_URL=https://eda.example.com:9443 ./init.sh"
-    exit 1
-fi
 # Extract host:port from EDA_URL (strip protocol)
 EDA_API=$(echo "$EDA_URL" | sed -E 's|^https?://||')
 echo "$EDA_API" > .eda_api_address
@@ -225,7 +241,13 @@ echo -e "${GREEN}--> Importing Nokia device types...${RESET}"
 uv run scripts/import_device_types.py | indent_out
 
 echo -e "${GREEN}--> Applying NetBox App...${RESET}"
-kubectl apply -f ./manifests/0001_netbox_app_install.yaml | indent_out
+APP_INSTALL_WF=$(kubectl create -f ./manifests/0001_netbox_app_install.yaml)
+APP_INSTALL_WF_NAME=$(echo "$APP_INSTALL_WF" | awk '{print $1}')
+echo "AppInstaller ${APP_INSTALL_WF_NAME} created" | indent_out
+
+echo -e "${GREEN}--> Waiting for NetBox app installation to complete...${RESET}"
+kubectl -n eda-system wait --for=jsonpath='{.status.result}'=Completed \
+    "$APP_INSTALL_WF_NAME" --timeout=300s | indent_out
 
 echo -e "${GREEN}--> Waiting for NetBox CRD to be installed...${RESET}"
 for i in {1..60}; do
@@ -315,7 +337,7 @@ echo ""
 echo "==================================="
 echo "NetBox installation completed!"
 echo "==================================="
-echo "NetBox URL: $NETBOX_URL"
+echo "NetBox URL: $NETBOX_UI_URL"
 echo "Username: admin"
 echo "Password: netbox"
 echo ""
