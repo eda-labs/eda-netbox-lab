@@ -69,6 +69,7 @@ Replace `eda.example.com:9443` with your actual EDA external domain/IP and HTTPS
 - **SR Linux nodes (CX):** `./cx/node-ssh leaf1`
 - **Server containers (CX):** `./cx/container-shell server1`
 - **NetBox API token:** stored as the `netbox-api-token` secret in the `eda-netbox` namespace
+- **NetBox UI URL:** saved locally in `.netbox_ui_url`
 - **EDA API endpoint:** saved locally in `.eda_api_address` for use with `clab-connector` or custom tooling
 
 ## Working with NetBox Integration

@@ -19,12 +19,7 @@ ST_STACK_NS=eda-netbox
 DEFAULT_USER_NS=eda
 NETBOX_CHART_REF=${NETBOX_CHART_REF:-oci://ghcr.io/netbox-community/netbox-chart/netbox}
 NETBOX_CHART_VERSION=${NETBOX_CHART_VERSION:-6.0.52}
-NETBOX_CSRF_TRUSTED_ORIGIN=${NETBOX_CSRF_TRUSTED_ORIGIN:-${EDA_URL:-}}
-NETBOX_CSRF_TRUSTED_ORIGIN=${NETBOX_CSRF_TRUSTED_ORIGIN%/}
 NETBOX_HELM_EXTRA_ARGS=()
-if [[ -n "${NETBOX_CSRF_TRUSTED_ORIGIN}" ]]; then
-    NETBOX_HELM_EXTRA_ARGS+=(--set "csrf.trustedOrigins[0]=${NETBOX_CSRF_TRUSTED_ORIGIN}")
-fi
 
 usage() {
     cat <<USAGE
@@ -48,6 +43,20 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -z "${EDA_URL:-}" ]]; then
+    echo "Error: EDA_URL environment variable is required."
+    echo "Example: EDA_URL=https://eda.example.com:9443 ./init.sh"
+    exit 1
+fi
+
+EDA_URL=${EDA_URL%/}
+NETBOX_UI_URL="${EDA_URL}/core/httpproxy/v1/netbox-ui"
+NETBOX_CSRF_TRUSTED_ORIGIN=${NETBOX_CSRF_TRUSTED_ORIGIN:-${EDA_URL}}
+NETBOX_CSRF_TRUSTED_ORIGIN=${NETBOX_CSRF_TRUSTED_ORIGIN%/}
+if [[ -n "${NETBOX_CSRF_TRUSTED_ORIGIN}" ]]; then
+    NETBOX_HELM_EXTRA_ARGS+=(--set "csrf.trustedOrigins[0]=${NETBOX_CSRF_TRUSTED_ORIGIN}")
+fi
 
 ensure_uv
 
@@ -191,12 +200,8 @@ if [[ -z "$NETBOX_URL" ]]; then
 fi
 
 echo "$NETBOX_URL" > .netbox_url
+echo "$NETBOX_UI_URL" > .netbox_ui_url
 
-if [[ -z "${EDA_URL:-}" ]]; then
-    echo "Error: EDA_URL environment variable is required."
-    echo "Example: EDA_URL=https://eda.example.com:9443 ./init.sh"
-    exit 1
-fi
 # Extract host:port from EDA_URL (strip protocol)
 EDA_API=$(echo "$EDA_URL" | sed -E 's|^https?://||')
 echo "$EDA_API" > .eda_api_address
@@ -332,7 +337,7 @@ echo ""
 echo "==================================="
 echo "NetBox installation completed!"
 echo "==================================="
-echo "NetBox URL: $NETBOX_URL"
+echo "NetBox URL: $NETBOX_UI_URL"
 echo "Username: admin"
 echo "Password: netbox"
 echo ""

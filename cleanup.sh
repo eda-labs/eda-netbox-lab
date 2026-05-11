@@ -219,6 +219,6 @@ echo "Deleting NetBox namespace..."
 kubectl delete namespace "${NETBOX_NS}" --wait=false 2>/dev/null || true
 
 echo "Cleaning up local files..."
-rm -f .netbox_url .eda_api_address
+rm -f .netbox_url .netbox_ui_url .eda_api_address
 
 echo "Cleanup completed!"
