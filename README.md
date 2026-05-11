@@ -20,7 +20,7 @@ In its default form the lab runs entirely inside the EDA Digital Twin (CX) envir
 ## Requirements
 
 > [!IMPORTANT]
-> **EDA Version:** 25.12.1 or later. Ensure your EDA playground (or production deployment) is installed and healthy before starting the lab.
+> **EDA Version:** 26.4.1 or later. Ensure your EDA playground (or production deployment) is installed and healthy before starting the lab.
 
 1. **Helm** – install from <https://helm.sh/docs/intro/install/>.
 2. **kubectl** – verify the EDA engine status:
@@ -46,7 +46,7 @@ The `init.sh` script performs the entire CX deployment flow:
 EDA_URL=https://eda.example.com:9443 ./init.sh
 ```
 
-Replace `eda.example.com:9443` with your actual EDA external domain/IP and HTTPS port.
+Replace `eda.example.com:9443` with your actual EDA external domain/IP and HTTPS port. `EDA_URL` is also used as NetBox's trusted CSRF origin for the EDA httpProxy UI path.
 
 > [!NOTE]
 > The script detects CX automatically. If CX pods are not present it prepares the environment for the Containerlab workflow—follow the instructions in [`clab/README.md`](./clab/README.md) to continue with that path.
@@ -96,6 +96,6 @@ kubectl delete namespace eda-netbox --wait=false
 
 ## Additional Resources
 
-- [EDA NetBox App Guide](https://docs.eda.dev/25.12/apps/netbox/)
+- [EDA NetBox App Guide](https://docs.eda.dev/26.4/apps/netbox/)
 - [NetBox Documentation](https://docs.netbox.dev/)
 - [Containerlab Documentation](https://containerlab.dev/)

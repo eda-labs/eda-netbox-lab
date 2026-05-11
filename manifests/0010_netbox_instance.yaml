@@ -4,7 +4,7 @@ metadata:
   name: netbox
   namespace: eda-netbox
 spec:
-  url: http://netbox-server.netbox.svc.cluster.local
+  url: http://netbox-server.netbox.svc.cluster.local/core/httpproxy/v1/netbox-ui
   apiToken: netbox-api-token
   signatureKey: netbox-webhook-signature
   disableWebhook: false

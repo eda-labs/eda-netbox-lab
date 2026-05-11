@@ -1,0 +1,8 @@
+apiVersion: core.eda.nokia.com/v1
+kind: HttpProxy
+metadata:
+  name: netbox-ui
+  namespace: eda-system
+spec:
+  authType: atDestination
+  rootUrl: http://netbox-server.netbox.svc.cluster.local/core/httpproxy/v1/netbox-ui/

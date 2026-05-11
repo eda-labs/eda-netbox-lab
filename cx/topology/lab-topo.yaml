@@ -1,10 +1,10 @@
-apiVersion: topologies.eda.nokia.com/v1alpha1
+apiVersion: topologies.eda.nokia.com/v1
 kind: NetworkTopology
 metadata:
   generateName: netbox-lab-
   namespace: eda-netbox
 spec:
-  operation: replaceAll
+  operation: ReplaceAll
   nodeTemplates:
   - name: leaf
     nodeProfile: srlinux-ghcr-25.10.1
@@ -31,11 +31,11 @@ spec:
 
   linkTemplates:
   - name: isl
-    type: interSwitch
+    type: InterSwitch
     labels:
       eda.nokia.com/role: interSwitch
   - name: edge
-    type: edge
+    type: Edge
     labels:
       eda.nokia.com/role: edge
 
