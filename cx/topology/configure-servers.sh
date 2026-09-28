@@ -14,19 +14,19 @@ done
 
 echo "Waiting for server pods to be ready"
 for server in "${servers[@]}"; do
-  kubectl -n "${CORE_NS}" wait --for=condition=ready pod -l "eda.nokia.com/app=sim-${server}" --timeout=120s
+  kubectl -n "${CORE_NS}" wait --for=condition=ready pod -l "eda.nokia.com/app=sim-${server},cx-node-namespace=${TOPO_NS}" --timeout=120s
 done
 
 for server in "${servers[@]}"; do
   echo "Waiting for interfaces on ${server}"
   kubectl -n "${CORE_NS}" exec \
-    $(kubectl get -n "${CORE_NS}" pods -l "eda.nokia.com/app=sim-${server}" -o jsonpath="{.items[0].metadata.name}") \
+    $(kubectl get -n "${CORE_NS}" pods -l "eda.nokia.com/app=sim-${server},cx-node-namespace=${TOPO_NS}" -o jsonpath="{.items[0].metadata.name}") \
     -c "${server}" -- bash -c "$(cat configs/servers/wait-for-ifaces.sh)"
 done
 
 for server in "${servers[@]}"; do
   echo "Configuring ${server}"
   kubectl -n "${CORE_NS}" exec \
-    $(kubectl get -n "${CORE_NS}" pods -l "eda.nokia.com/app=sim-${server}" -o jsonpath="{.items[0].metadata.name}") \
+    $(kubectl get -n "${CORE_NS}" pods -l "eda.nokia.com/app=sim-${server},cx-node-namespace=${TOPO_NS}" -o jsonpath="{.items[0].metadata.name}") \
     -c "${server}" -- bash -c "$(cat configs/servers/${server}.sh)"
 done
